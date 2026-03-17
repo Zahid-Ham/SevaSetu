@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View, Text, TouchableOpacity, TextInput, ActivityIndicator, Animated } from 'react-native';
+import { ScrollView, StyleSheet, View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { AppHeader, PrimaryButton } from '../../components';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
+import { LottieSuccess, LottieLoading } from '../../components/common/LottieAnimations';
 
 type IssueType = 'Water Shortage' | 'Food Assistance' | 'Medical Help' | 'Education' | 'Other';
 
@@ -14,24 +15,7 @@ const ISSUE_CATEGORIES: { label: IssueType, icon: keyof typeof Ionicons.glyphMap
   { label: 'Other', icon: 'ellipsis-horizontal-circle' },
 ];
 
-const AnimatedSuccessIcon = () => {
-  const scale = React.useRef(new Animated.Value(0)).current;
 
-  React.useEffect(() => {
-    Animated.spring(scale, {
-      toValue: 1,
-      friction: 5,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  }, [scale]);
-
-  return (
-    <Animated.View style={[styles.successCircle, { transform: [{ scale }] }]}>
-      <Ionicons name="checkmark" size={64} color={colors.cardBackground} />
-    </Animated.View>
-  );
-};
 
 export const ReportIssueScreen = () => {
   const [selectedType, setSelectedType] = useState<IssueType | null>(null);
@@ -55,11 +39,10 @@ export const ReportIssueScreen = () => {
   if (status === 'success') {
     return (
       <View style={[styles.container, styles.centerAll]}>
-        <AnimatedSuccessIcon />
-        <Text style={styles.successText}>Your report has been submitted successfully.</Text>
-        <PrimaryButton 
-          title="Report Another Issue" 
-          onPress={() => { setStatus('idle'); setSelectedType(null); setDescription(''); }} 
+        <LottieSuccess message="Your report has been submitted successfully!" size={200} />
+        <PrimaryButton
+          title="Report Another Issue"
+          onPress={() => { setStatus('idle'); setSelectedType(null); setDescription(''); }}
           style={styles.backBtn}
         />
       </View>
@@ -130,10 +113,7 @@ export const ReportIssueScreen = () => {
 
         <View style={styles.submitContainer}>
           {status === 'loading' ? (
-             <View style={styles.loadingContainer}>
-               <ActivityIndicator size="large" color={colors.primarySaffron} />
-               <Text style={styles.loadingText}>Submitting report...</Text>
-             </View>
+            <LottieLoading message="Submitting report..." size={80} />
           ) : (
             <PrimaryButton 
               title="Submit Report" 
@@ -257,22 +237,8 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     color: colors.textSecondary,
   },
-  successCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: colors.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xl,
-  },
-  successText: {
-    ...typography.headingMedium,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: spacing.xxl,
-  },
   backBtn: {
     width: '100%',
+    marginTop: spacing.lg,
   },
 });

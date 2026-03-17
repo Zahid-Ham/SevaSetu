@@ -1,13 +1,18 @@
-import React, { useRef } from 'react';
-import { 
-  TouchableOpacity, 
-  Text, 
-  StyleSheet, 
-  Animated, 
-  ViewStyle, 
-  TextStyle, 
-  View
+import React from 'react';
+import {
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  ViewStyle,
+  TextStyle,
+  View,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, typography } from '../../theme';
@@ -31,31 +36,32 @@ export const GradientButton: React.FC<GradientButtonProps> = ({
   colors: gradientColors = ['#FF8C42', '#FFB066'],
   disabled = false,
 }) => {
-  const animatedScale = useRef(new Animated.Value(1)).current;
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   const handlePressIn = () => {
-    Animated.spring(animatedScale, {
-      toValue: 0.96,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 10,
-    }).start();
+    scale.value = withSpring(0.94, { damping: 12, stiffness: 300 });
   };
 
   const handlePressOut = () => {
-    Animated.spring(animatedScale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 10,
-    }).start();
+    scale.value = withSpring(1, { damping: 12, stiffness: 300 });
+  };
+
+  const handlePress = () => {
+    if (!disabled) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onPress();
+    }
   };
 
   return (
-    <Animated.View style={[{ transform: [{ scale: animatedScale }] }, style]}>
+    <Animated.View style={[animatedStyle, style]}>
       <TouchableOpacity
         activeOpacity={0.9}
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled}
@@ -68,11 +74,11 @@ export const GradientButton: React.FC<GradientButtonProps> = ({
         >
           <View style={styles.content}>
             {icon && (
-              <Feather 
-                name={icon} 
-                size={20} 
-                color="#FFF" 
-                style={styles.icon} 
+              <Feather
+                name={icon}
+                size={20}
+                color="#FFF"
+                style={styles.icon}
               />
             )}
             <Text style={[styles.text, textStyle]}>{title}</Text>

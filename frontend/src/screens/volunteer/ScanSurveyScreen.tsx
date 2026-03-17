@@ -1,14 +1,15 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   View, StyleSheet, Text, Image, ScrollView, TextInput,
-  ActivityIndicator, Alert, TouchableOpacity, FlatList,
-  Modal, RefreshControl,
+  ActivityIndicator, Alert, TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { AppHeader, PrimaryButton, IconButton } from '../../components';
+import { ShimmerCardList } from '../../components/common/SkeletonCard';
 import { colors, spacing, typography } from '../../theme';
 import { API_BASE_URL } from '../../config/apiConfig';
 
@@ -54,7 +55,6 @@ const formatDate = (iso: string) => {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export const ScanSurveyScreen = () => {
-  const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<ScreenMode>('idle');
   const [isProcessing, setIsProcessing] = useState(false);
   const [scannedImage, setScannedImage] = useState<string | null>(null);
@@ -64,8 +64,18 @@ export const ScanSurveyScreen = () => {
   const [loadingReports, setLoadingReports] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = React.useMemo(() => ['55%', '85%'], []);
 
-  const cameraRef = useRef<any>(null);
+  const openReportDetail = (report: Report) => {
+    setSelectedReport(report);
+    bottomSheetRef.current?.expand();
+  };
+
+  const closeSheet = () => {
+    bottomSheetRef.current?.close();
+    setTimeout(() => setSelectedReport(null), 300);
+  };
 
   // Fetch reports every time the screen is focused
   useFocusEffect(
@@ -82,23 +92,32 @@ export const ScanSurveyScreen = () => {
     } catch (e) {
       console.error('Failed to fetch reports:', e);
     } finally {
-      setLoadingReports(false);
-      setRefreshing(false);
+      // Small delay to ensure shimmer visibility on fast connections
+      setTimeout(() => {
+        setLoadingReports(false);
+        setRefreshing(false);
+      }, 800);
     }
   };
 
   const onRefresh = () => { setRefreshing(true); fetchReports(); };
 
   // ── Image capture ──
-  const handleCapture = async () => {
-    if (!cameraRef.current) return;
+  const openCamera = async () => {
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, base64: false });
-      setScannedImage(photo.uri);
-      setMode('processing');
-      processImage(photo.uri);
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        const uri = result.assets[0].uri;
+        setScannedImage(uri);
+        setMode('processing');
+        processImage(uri);
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to capture image');
+      Alert.alert('Error', 'Failed to open camera or capture image');
     }
   };
 
@@ -118,17 +137,6 @@ export const ScanSurveyScreen = () => {
     } catch (error) {
       Alert.alert('Error', 'Failed to pick image from gallery');
     }
-  };
-
-  const openCamera = async () => {
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) {
-        Alert.alert('Permission Denied', 'Camera access is required to scan forms.');
-        return;
-      }
-    }
-    setMode('camera');
   };
 
   // ── OCR + Gemini ──
@@ -235,7 +243,9 @@ export const ScanSurveyScreen = () => {
               PREVIOUS REPORTS ({reports.length})
             </Text>
             {loadingReports ? (
-              <ActivityIndicator color={colors.primaryGreen} style={{ marginTop: spacing.lg }} />
+              <View style={{ marginTop: spacing.lg }}>
+                <ShimmerCardList count={3} />
+              </View>
             ) : reports.length === 0 ? (
               <View style={styles.emptyBox}>
                 <Feather name="inbox" size={36} color={colors.textSecondary} />
@@ -243,28 +253,12 @@ export const ScanSurveyScreen = () => {
               </View>
             ) : (
               reports.map((item) => (
-                <ReportCard key={item.id} report={item} onPress={() => setSelectedReport(item)} />
+                <ReportCard key={item.id} report={item} onPress={() => openReportDetail(item)} />
               ))
             )}
           </ScrollView>
         );
 
-      // ── CAMERA ──
-      case 'camera':
-        return (
-          <View style={styles.cameraContainer}>
-            <CameraView style={styles.camera} ref={cameraRef} />
-            <View style={styles.overlay} pointerEvents="none">
-              <View style={styles.scanFrame} />
-              <Text style={styles.instructionText}>Align form within the frame</Text>
-            </View>
-            <View style={styles.controls}>
-              <TouchableOpacity style={styles.captureButton} onPress={handleCapture}>
-                <View style={styles.captureButtonInner} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
 
       // ── PROCESSING ──
       case 'processing':
@@ -278,29 +272,41 @@ export const ScanSurveyScreen = () => {
       // ── PREVIEW / EDIT ──
       case 'preview':
         return (
-          <ScrollView contentContainerStyle={styles.scrollContent}>
-            {scannedImage && <Image source={{ uri: scannedImage }} style={styles.previewImage} />}
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {scannedImage && (
+              <View style={styles.imageCard}>
+                <Image source={{ uri: scannedImage }} style={styles.previewImage} />
+                <View style={styles.imageOverlay}>
+                  <Text style={styles.imageTitle}>Scanned Document</Text>
+                </View>
+              </View>
+            )}
             <View style={styles.formContainer}>
-              <Text style={styles.formTitle}>Verify Information</Text>
-              <FormField label="Name" value={parsedData?.name || ''}
-                onChangeText={(t: string) => setParsedData(p => p ? { ...p, name: t } : null)} />
-              <FormField label="Phone" value={parsedData?.phone || ''} keyboardType="phone-pad"
-                onChangeText={(t: string) => setParsedData(p => p ? { ...p, phone: t } : null)} />
-              <FormField label="Location" value={parsedData?.location || ''}
-                onChangeText={(t: string) => setParsedData(p => p ? { ...p, location: t } : null)} />
-              <FormField label="Issue Type" value={parsedData?.issue_type || ''}
-                onChangeText={(t: string) => setParsedData(p => p ? { ...p, issue_type: t } : null)} />
-              <FormField label="Description" value={parsedData?.description || ''} multiline
-                onChangeText={(t: string) => setParsedData(p => p ? { ...p, description: t } : null)} />
+              <View style={styles.premiumCard}>
+                <Text style={styles.formTitle}>Verify Information</Text>
+                <Text style={styles.formSubtitle}>Please ensure the AI correctly captured the details from your scan.</Text>
+                
+                <FormField label="Name" value={parsedData?.name || ''}
+                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, name: t } : null)} />
+                <FormField label="Phone" value={parsedData?.phone || ''} keyboardType="phone-pad"
+                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, phone: t } : null)} />
+                <FormField label="Location" value={parsedData?.location || ''}
+                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, location: t } : null)} />
+                <FormField label="Issue Type" value={parsedData?.issue_type || ''}
+                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, issue_type: t } : null)} />
+                <FormField label="Description" value={parsedData?.description || ''} multiline
+                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, description: t } : null)} />
+              </View>
+
               <View style={styles.buttonRow}>
                 <PrimaryButton
-                  title={isProcessing ? 'Submitting...' : 'Submit Report'}
+                  title={isProcessing ? 'Submitting...' : 'Confirm & Submit'}
                   onPress={handleSubmit}
                   style={styles.submitBtn}
                   disabled={isProcessing}
                 />
                 <TouchableOpacity onPress={resetFlow} style={styles.retakeBtn} disabled={isProcessing}>
-                  <Text style={styles.retakeText}>Cancel & Start Over</Text>
+                  <Text style={styles.retakeText}>Discard & Retake</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -318,32 +324,36 @@ export const ScanSurveyScreen = () => {
       />
       {renderContent()}
 
-      {/* Detail Modal */}
-      <Modal visible={!!selectedReport} animationType="slide" transparent onRequestClose={() => setSelectedReport(null)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Report Details</Text>
-              <TouchableOpacity onPress={() => setSelectedReport(null)}>
-                <Feather name="x" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {selectedReport && (
-                <>
-                  <DetailRow icon="user" label="Citizen Name" value={selectedReport.citizen_name} />
-                  <DetailRow icon="phone" label="Phone" value={selectedReport.phone} />
-                  <DetailRow icon="map-pin" label="Location" value={selectedReport.location} />
-                  <DetailRow icon="alert-triangle" label="Issue Type" value={selectedReport.issue_type} />
-                  <DetailRow icon="file-text" label="Description" value={selectedReport.description} />
-                  <DetailRow icon="clock" label="Submitted At" value={formatDate(selectedReport.created_at)} />
-                  <DetailRow icon="hash" label="Report ID" value={selectedReport.id} />
-                </>
-              )}
-            </ScrollView>
+      {/* Bottom Sheet for Report Details */}
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        onClose={closeSheet}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.sheetHandle}
+      >
+        <BottomSheetScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.modalTitle}>Report Details</Text>
+            <TouchableOpacity onPress={closeSheet}>
+              <Feather name="x" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+          {selectedReport && (
+            <>
+              <DetailRow icon="user" label="Citizen Name" value={selectedReport.citizen_name} />
+              <DetailRow icon="phone" label="Phone" value={selectedReport.phone} />
+              <DetailRow icon="map-pin" label="Location" value={selectedReport.location} />
+              <DetailRow icon="alert-triangle" label="Issue Type" value={selectedReport.issue_type} />
+              <DetailRow icon="file-text" label="Description" value={selectedReport.description} />
+              <DetailRow icon="clock" label="Submitted At" value={formatDate(selectedReport.created_at)} />
+              <DetailRow icon="hash" label="Report ID" value={selectedReport.id} />
+            </>
+          )}
+        </BottomSheetScrollView>
+      </BottomSheet>
     </View>
   );
 };
@@ -502,9 +512,36 @@ const styles = StyleSheet.create({
 
   // Preview / form
   scrollContent: { paddingBottom: spacing.xxl },
-  previewImage: { width: '100%', height: 220, resizeMode: 'cover' },
-  formContainer: { padding: spacing.xl },
-  formTitle: { ...typography.headingMedium, marginBottom: spacing.xl, color: colors.textPrimary },
+  imageCard: { 
+    margin: spacing.lg, 
+    borderRadius: 20, 
+    overflow: 'hidden', 
+    backgroundColor: '#000',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  previewImage: { width: '100%', height: 250, resizeMode: 'cover', opacity: 0.9 },
+  imageOverlay: { 
+    position: 'absolute', bottom: 0, left: 0, right: 0, 
+    padding: spacing.md, backgroundColor: 'rgba(0,0,0,0.4)' 
+  },
+  imageTitle: { color: '#fff', fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+  formContainer: { paddingHorizontal: spacing.lg },
+  premiumCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 24,
+    padding: spacing.xl,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  formTitle: { ...typography.headingMedium, color: colors.textPrimary, marginBottom: 4 },
+  formSubtitle: { ...typography.captionText, color: colors.textSecondary, marginBottom: spacing.xl },
   fieldContainer: { marginBottom: spacing.lg },
   label: {
     ...typography.captionText,
@@ -512,42 +549,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     textTransform: 'uppercase',
     fontWeight: '700',
+    fontSize: 10,
   },
   input: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 8, padding: spacing.md,
-    borderWidth: 1, borderColor: colors.textSecondary + '40',
+    backgroundColor: colors.background, // Contrast against card
+    borderRadius: 12, padding: spacing.md,
+    borderWidth: 1, borderColor: colors.textSecondary + '20',
     ...typography.bodyText,
   },
   textArea: { height: 100, textAlignVertical: 'top' },
-  buttonRow: { marginTop: spacing.xl },
+  buttonRow: { marginTop: spacing.xl, marginBottom: spacing.xl },
   submitBtn: { width: '100%' },
   retakeBtn: { marginTop: spacing.lg, alignItems: 'center' },
-  retakeText: { ...typography.bodyText, color: colors.error },
+  retakeText: { ...typography.bodyText, color: colors.error, fontWeight: '600' },
 
-  // Detail Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modal: {
-    backgroundColor: colors.cardBackground,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: spacing.xl,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: spacing.xl,
-  },
+  // Bottom sheet
+  sheetBackground: { backgroundColor: colors.cardBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  sheetHandle: { backgroundColor: colors.textSecondary + '40', width: 40, height: 4, borderRadius: 2 },
+  sheetContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl, paddingTop: spacing.md },
   modalTitle: { ...typography.headingMedium, color: colors.textPrimary },
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.lg },
   detailIconWrap: {
-    width: 30, height: 30, borderRadius: 8,
+    width: 32, height: 32, borderRadius: 8,
     backgroundColor: colors.primaryGreen + '15',
     justifyContent: 'center', alignItems: 'center',
     marginRight: spacing.md,
   },
-  detailLabel: {
-    ...typography.captionText, color: colors.textSecondary,
-    marginBottom: 2, textTransform: 'uppercase', fontSize: 11,
-  },
+  detailLabel: { ...typography.captionText, color: colors.textSecondary, marginBottom: 2, textTransform: 'uppercase', fontSize: 11 },
   detailValue: { ...typography.bodyText, color: colors.textPrimary },
 });

@@ -1,14 +1,19 @@
-import React, { useRef } from 'react';
-import { 
-  Text, 
-  StyleSheet, 
-  Animated, 
-  Pressable, 
-  StyleProp, 
-  ViewStyle, 
+import React from 'react';
+import {
+  Text,
+  StyleSheet,
+  Pressable,
+  StyleProp,
+  ViewStyle,
   TextStyle,
-  View
+  View,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { colors, spacing, typography } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -21,42 +26,43 @@ export interface PrimaryButtonProps {
   iconName?: keyof typeof Ionicons.glyphMap;
 }
 
-export const PrimaryButton: React.FC<PrimaryButtonProps> = ({ 
-  title, 
-  onPress, 
-  style, 
-  textStyle, 
+export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
+  title,
+  onPress,
+  style,
+  textStyle,
   disabled = false,
-  iconName
+  iconName,
 }) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
+    scale.value = withSpring(0.94, { damping: 10, stiffness: 300 });
   };
 
   const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-    }).start();
+    scale.value = withSpring(1, { damping: 10, stiffness: 300 });
+  };
+
+  const handlePress = () => {
+    if (!disabled) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onPress();
+    }
   };
 
   return (
-    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, style]}>
+    <Animated.View style={[animatedStyle, style]}>
       <Pressable
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        onPress={onPress}
+        onPress={handlePress}
         disabled={disabled}
-        style={({ pressed }) => [
-          styles.button,
-          disabled && styles.disabled,
-          pressed && !disabled && styles.pressed
-        ]}
+        style={() => [styles.button, disabled && styles.disabled]}
       >
         <View style={styles.contentRow}>
           {iconName && (

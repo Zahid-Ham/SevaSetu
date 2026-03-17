@@ -1,13 +1,16 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal, ScrollView,
+  RefreshControl, ScrollView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { AppHeader } from '../../components';
 import { colors, spacing, typography } from '../../theme';
 import { API_BASE_URL } from '../../config/apiConfig';
+import { ShimmerCardList } from '../../components/common/SkeletonCard';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 type Report = {
   id: string;
@@ -37,6 +40,20 @@ export const ReportsScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Bottom sheet setup
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['55%', '85%'], []);
+
+  const openSheet = (report: Report) => {
+    setSelected(report);
+    bottomSheetRef.current?.expand();
+  };
+
+  const closeSheet = () => {
+    bottomSheetRef.current?.close();
+    setTimeout(() => setSelected(null), 300);
+  };
 
   const fetchReports = async () => {
     try {
@@ -82,7 +99,7 @@ export const ReportsScreen = () => {
   };
 
   const renderItem = ({ item }: { item: Report }) => (
-    <TouchableOpacity style={styles.card} onPress={() => setSelected(item)} activeOpacity={0.85}>
+    <TouchableOpacity style={styles.card} onPress={() => openSheet(item)} activeOpacity={0.85}>
       <View style={styles.cardHeader}>
         <View style={[styles.badge, { backgroundColor: issueColor(item.issue_type) + '20' }]}>
           <Text style={[styles.badgeText, { color: issueColor(item.issue_type) }]}>
@@ -110,9 +127,8 @@ export const ReportsScreen = () => {
       <AppHeader title="Community Reports" />
 
       {loading ? (
-        <View style={styles.centred}>
-          <ActivityIndicator size="large" color={colors.primaryGreen} />
-          <Text style={styles.loadingText}>Loading reports...</Text>
+        <View style={styles.skeletonContainer}>
+          <ShimmerCardList count={5} />
         </View>
       ) : error ? (
         <View style={styles.centred}>
@@ -143,33 +159,37 @@ export const ReportsScreen = () => {
         />
       )}
 
-      {/* Detail Modal */}
-      <Modal visible={!!selected} animationType="slide" transparent onRequestClose={() => setSelected(null)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Report Details</Text>
-              <TouchableOpacity onPress={() => setSelected(null)}>
-                <Feather name="x" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {selected && (
-                <>
-                  <DetailRow icon="user" label="Citizen Name" value={selected.citizen_name} />
-                  <DetailRow icon="phone" label="Phone" value={selected.phone} />
-                  <DetailRow icon="map-pin" label="Location" value={selected.location} />
-                  <DetailRow icon="alert-triangle" label="Issue Type" value={selected.issue_type} />
-                  <DetailRow icon="file-text" label="Description" value={selected.description} />
-                  <DetailRow icon="user-check" label="Volunteer ID" value={selected.volunteer_id} />
-                  <DetailRow icon="clock" label="Submitted At" value={formatDate(selected.created_at)} />
-                  <DetailRow icon="hash" label="Report ID" value={selected.id} />
-                </>
-              )}
-            </ScrollView>
+      {/* Bottom Sheet for Report Details */}
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        onClose={closeSheet}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.sheetHandle}
+      >
+        <BottomSheetScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.modalTitle}>Report Details</Text>
+            <TouchableOpacity onPress={closeSheet}>
+              <Feather name="x" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+          {selected && (
+            <>
+              <DetailRow icon="user" label="Citizen Name" value={selected.citizen_name} />
+              <DetailRow icon="phone" label="Phone" value={selected.phone} />
+              <DetailRow icon="map-pin" label="Location" value={selected.location} />
+              <DetailRow icon="alert-triangle" label="Issue Type" value={selected.issue_type} />
+              <DetailRow icon="file-text" label="Description" value={selected.description} />
+              <DetailRow icon="user-check" label="Volunteer ID" value={selected.volunteer_id} />
+              <DetailRow icon="clock" label="Submitted At" value={formatDate(selected.created_at)} />
+              <DetailRow icon="hash" label="Report ID" value={selected.id} />
+            </>
+          )}
+        </BottomSheetScrollView>
+      </BottomSheet>
     </View>
   );
 };
@@ -189,6 +209,7 @@ const DetailRow = ({ icon, label, value }: { icon: any; label: string; value: st
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centred: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  skeletonContainer: { flex: 1, padding: spacing.lg },
   loadingText: { ...typography.bodyText, marginTop: spacing.md, color: colors.textSecondary },
   errorText: { ...typography.bodyText, color: colors.error, textAlign: 'center', marginTop: spacing.md },
   retryBtn: {
@@ -198,7 +219,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: 8,
   },
-  retryText: { color: '#fff', ...typography.bodyText, fontWeight: '700' },
+  retryText: { ...typography.bodyText, color: '#fff', fontWeight: '700' },
   listContent: { padding: spacing.lg, paddingBottom: spacing.xxl },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { ...typography.bodyText, color: colors.textSecondary, marginTop: spacing.md },
@@ -229,16 +250,11 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   metaText: { ...typography.captionText, color: colors.textSecondary, marginLeft: 4 },
   descText: { ...typography.bodyText, color: colors.textSecondary, fontSize: 13 },
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modal: {
-    backgroundColor: colors.cardBackground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: spacing.xl,
-    maxHeight: '85%',
-  },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl },
+  // Bottom sheet
+  sheetBackground: { backgroundColor: colors.cardBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  sheetHandle: { backgroundColor: colors.textSecondary + '40', width: 40, height: 4, borderRadius: 2 },
+  sheetContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl, paddingTop: spacing.md },
   modalTitle: { ...typography.headingMedium, color: colors.textPrimary },
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.lg },
   detailIconWrap: {

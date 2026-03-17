@@ -1,5 +1,11 @@
-import React, { useRef } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Platform, StatusBar, Animated, Pressable } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, SafeAreaView, Platform, StatusBar, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,8 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '../../theme';
 import { MadeInIndiaBadge, GradientBackground } from '../../components';
 
-// We update RoleSelectionProps to not accept the setter directly here,
-// but rather pass the role to LoginScreen which will handle auth
+// RoleCard upgraded to use Reanimated + Haptics
 type RoleCardProps = {
   title: string;
   description: string;
@@ -17,28 +22,31 @@ type RoleCardProps = {
 };
 
 const AnimatedRoleCard: React.FC<RoleCardProps> = ({ title, description, iconName, onPress }) => {
-  const scale = useRef(new Animated.Value(1)).current;
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   const handlePressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
+    scale.value = withSpring(0.95, { damping: 10, stiffness: 300 });
   };
 
   const handlePressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-    }).start();
+    scale.value = withSpring(1, { damping: 10, stiffness: 300 });
+  };
+
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
   };
 
   return (
-    <Animated.View style={[{ transform: [{ scale }] }]}>
-      <Pressable 
+    <Animated.View style={animatedStyle}>
+      <Pressable
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        onPress={onPress}
+        onPress={handlePress}
         style={styles.roleCard}
       >
         <View style={styles.cardHeader}>

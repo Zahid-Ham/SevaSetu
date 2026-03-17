@@ -1,8 +1,16 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Animated, Image, Dimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View, Image, Dimensions } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../theme/colors';
+import { useAuthStore } from '../../services/store/useAuthStore';
 
 const { width } = Dimensions.get('window');
 
@@ -13,29 +21,22 @@ type AuthStackParamList = {
 
 type SplashScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'SplashScreen'>;
 
-import { useAuthStore } from '../../services/store/useAuthStore';
-
 const SplashScreen: React.FC = () => {
   const navigation = useNavigation<SplashScreenNavigationProp>();
   const { hasOnboarded } = useAuthStore();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.85);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
 
   useEffect(() => {
-    // Logo entrance animation
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      })
-    ]).start();
+    // Logo entrance animation using Reanimated (UI thread)
+    opacity.value = withTiming(1, { duration: 1000 });
+    scale.value = withSpring(1, { damping: 12, stiffness: 100 });
 
     // Navigation timer
     const timer = setTimeout(() => {
@@ -44,15 +45,15 @@ const SplashScreen: React.FC = () => {
       } else {
         navigation.replace('OnboardingScreen');
       }
-    }, 3000);
+    }, 2800);
 
     return () => clearTimeout(timer);
-  }, [navigation, fadeAnim, scaleAnim, hasOnboarded]);
+  }, [navigation, hasOnboarded]);
 
   return (
     <View style={styles.container}>
-      <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
-        <Image 
+      <Animated.View style={animatedStyle}>
+        <Image
           source={require('../../assets/images/logo.png')}
           style={styles.logo}
           resizeMode="contain"
