@@ -37,3 +37,16 @@ def get_all_reports() -> list:
 
     print(f"Fetched {len(reports)} reports from Firestore")
     return reports
+
+
+def delete_report(report_id: str) -> None:
+    """
+    Deletes a specific report from the 'community_reports' Firestore collection by its document ID.
+    Raises ValueError if the document does not exist.
+    """
+    doc_ref = db.collection("community_reports").document(report_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise ValueError(f"Report with ID '{report_id}' not found.")
+    doc_ref.delete()
+    print(f"Report {report_id} deleted from Firestore.")

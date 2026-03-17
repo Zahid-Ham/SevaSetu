@@ -38,8 +38,8 @@ const AnimatedNumber: React.FC<{ targetValue: string | number }> = ({ targetValu
     animValue.setValue(0);
     Animated.timing(animValue, {
       toValue: numericTarget,
-      duration: 2000, // Premium 2s animation
-      useNativeDriver: false,
+      duration: 1500, // Slightly faster, punchier animation (1.5s)
+      useNativeDriver: false, // Text content implies no native driver
     }).start();
 
     const listenerId = animValue.addListener(({ value }) => {
@@ -50,7 +50,7 @@ const AnimatedNumber: React.FC<{ targetValue: string | number }> = ({ targetValu
     return () => {
       animValue.removeListener(listenerId);
     };
-  }, [targetValue]);
+  }, [targetValue]); // Re-run if targetValue changes from API
 
   return <Text style={styles.valueText}>{displayValue}</Text>;
 };

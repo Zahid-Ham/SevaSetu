@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View, Text, TouchableOpacity, TextInput } from 'react-native';
-import { AppHeader, PrimaryButton } from '../../components';
+import { AppHeader, PrimaryButton, ConfettiOverlay } from '../../components';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { LottieSuccess, LottieLoading } from '../../components/common/LottieAnimations';
@@ -45,6 +45,7 @@ export const ReportIssueScreen = () => {
           onPress={() => { setStatus('idle'); setSelectedType(null); setDescription(''); }}
           style={styles.backBtn}
         />
+        <ConfettiOverlay play={true} />
       </View>
     );
   }
