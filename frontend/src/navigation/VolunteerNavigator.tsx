@@ -27,8 +27,6 @@ export const VolunteerNavigator = () => {
         tabBarActiveTintColor: colors.primaryGreen,
         tabBarInactiveTintColor: colors.textSecondary,
         headerShown: false,
-        headerStyle: { backgroundColor: colors.cardBackground },
-        headerTintColor: colors.textPrimary,
       })}
     >
       <Tab.Screen name="Home" component={VolunteerHomeScreen} />
