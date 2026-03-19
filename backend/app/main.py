@@ -1,8 +1,16 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi.staticfiles import StaticFiles # type: ignore
+import os
 from app.api.routes import scan_routes, report_routes # type: ignore
 
 app = FastAPI(title="SevaSetu Backend")
+
+# Ensure uploads directory exists
+os.makedirs("uploads", exist_ok=True)
+
+# Mount local uploads folder as static server (Free Media Alternative)
+app.mount("/static", StaticFiles(directory="uploads"), name="static")
 
 # Enable CORS for mobile frontend and local development
 app.add_middleware(

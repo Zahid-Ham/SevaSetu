@@ -1,47 +1,99 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, StyleSheet, Text, Image, ScrollView, TextInput,
-  TouchableOpacity, RefreshControl, Animated, Easing, Alert,
+  TouchableOpacity, RefreshControl, Animated, Easing, Alert, ActivityIndicator,
+  Modal, TouchableWithoutFeedback
 } from 'react-native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect } from '@react-navigation/native';
+import * as DocumentPicker from 'expo-document-picker';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
-import { AppHeader, PrimaryButton, IconButton, ConfettiOverlay } from '../../components';
+import { AppHeader, PrimaryButton, IconButton, ConfettiOverlay, FullImageViewer } from '../../components';
 import { ShimmerCardList } from '../../components/common/SkeletonCard';
 import { colors, spacing, typography } from '../../theme';
 import { API_BASE_URL } from '../../config/apiConfig';
+import { FieldReportScreen } from './FieldReportScreen';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ParsedData = {
-  name: string;
-  phone: string;
-  location: string;
-  issue_type: string;
-  description: string;
+  survey_id?: string;
+  citizen_name?: string;
+  phone?: string;
+  precise_location?: string;
+  gps_coordinates?: string;
+  demographic_tally?: number;
+  
+  primary_category?: string;
+  sub_category?: string;
+  problem_status?: string;
+  duration_of_problem?: string;
+  urgency_level?: string;
+  service_status?: string;
+
+  severity_score?: number;
+  population_affected?: number;
+  vulnerability_flag?: string;
+  secondary_impact?: string;
+
+  key_complaints?: string[];
+  sentiment?: string;
+  key_quote?: string;
+  description?: string;
+  auto_category?: string;
+  
+  // Legacy
+  issue_type?: string;
 };
 
 type Report = {
   id: string;
-  citizen_name: string;
-  phone: string;
-  location: string;
-  issue_type: string;
-  description: string;
   volunteer_id: string;
   created_at: string;
+  
+  citizen_name?: string;
+  phone?: string;
+  precise_location?: string;
+  gps_coordinates?: string;
+  primary_category?: string;
+  sub_category?: string;
+  problem_status?: string;
+  duration_of_problem?: string;
+  urgency_level?: string;
+  service_status?: string;
+  severity_score?: number;
+  population_affected?: number;
+  vulnerability_flag?: string;
+  secondary_impact?: string;
+  key_complaints?: string[];
+  sentiment?: string;
+  key_quote?: string;
+  description?: string;
+  auto_category?: string;
+  report_source?: string;
+  
+  // Legacy
+  location?: string;
+  issue_type?: string;
+  photo_url?: string;
+  audio_url?: string;
 };
 
 type ScreenMode = 'idle' | 'processing' | 'preview' | 'success';
 
+const CATEGORIES = ['All', 'Water', 'Sanitation', 'Infrastructure', 'Health', 'Education', 'Safety', 'Other'];
+
 const ISSUE_COLORS: Record<string, string> = {
-  'Water shortage': '#1976D2',
+  'Water': '#1976D2',
   'Electricity': '#F9A825',
-  'Road damage': '#795548',
+  'Road': '#795548',
   'Sanitation': '#388E3C',
-  'Medical': '#E53935',
+  'Health': '#E53935',
+  'Infrastructure': '#8E24AA',
+  'Education': '#F57C00',
+  'Safety': '#D32F2F',
 };
-const issueColor = (type: string) => ISSUE_COLORS[type] ?? colors.primarySaffron;
+const issueColor = (type?: string) => type ? (ISSUE_COLORS[type] || ISSUE_COLORS[type.split(' ')[0]] || colors.primarySaffron) : colors.primarySaffron;
 
 const formatDate = (iso: string) => {
   if (!iso) return '';
@@ -52,34 +104,77 @@ const formatDate = (iso: string) => {
   } catch { return iso; }
 };
 
+import { Audio } from 'expo-av';
+
+const AudioPlayer = ({ url }: { url: string }) => {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const playSound = async () => {
+    try {
+      if (sound) {
+        if (isPlaying) {
+          await sound.pauseAsync();
+          setIsPlaying(false);
+        } else {
+          await sound.playAsync();
+          setIsPlaying(true);
+        }
+      } else {
+        const fullUrl = url.startsWith('file://') ? url : API_BASE_URL + url;
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: fullUrl },
+          { shouldPlay: true }
+        );
+        newSound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) setIsPlaying(false);
+        });
+        setSound(newSound);
+        setIsPlaying(true);
+      }
+    } catch (e) {
+      console.log('Error playing sound', e);
+    }
+  };
+
+  useEffect(() => {
+    return sound ? () => { sound.unloadAsync(); } : undefined;
+  }, [sound]);
+
+  return (
+    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: spacing.md, borderRadius: 12, borderWidth: 1, borderColor: colors.primaryGreen + '40', marginTop: spacing.xs, marginBottom: spacing.md }} onPress={playSound}>
+      <Feather name={isPlaying ? "pause-circle" : "play-circle"} size={24} color={colors.primaryGreen} />
+      <Text style={{ ...typography.bodyText, color: colors.primaryGreen, marginLeft: spacing.sm, fontWeight: '700' }}>
+        {isPlaying ? "Playing Voice Note..." : "Play Voice Note"}
+      </Text>
+    </TouchableOpacity>
+  );
+};
+
 // ─── AI Analyzing Steps ──────────────────────────────────────────────────────
 const ANALYSIS_STEPS = [
-  { icon: '📸', label: 'Scanning image...' },
-  { icon: '🔍', label: 'Detecting text & fields...' },
-  { icon: '🤖', label: 'AI extracting information...' },
-  { icon: '✅', label: 'Preparing your report...' },
+  { icon: '📸', label: 'Extracting document...' },
+  { icon: '🔍', label: 'Detecting handwriting & fields...' },
+  { icon: '🤖', label: 'AI analyzing 20+ parameters...' },
+  { icon: '✅', label: 'Preparing your comprehensive report...' },
 ];
 
-// ─── Analyzing Screen ────────────────────────────────────────────────────────
-const AnalyzingScreen = ({ imageUri }: { imageUri: string | null }) => {
+const AnalyzingScreen = ({ fileUris }: { fileUris: string[] }) => {
   const [stepIndex, setStepIndex] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const stepFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Pulsing ring animation
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
         Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
       ])
     );
-    // Fade in the whole screen
     Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
     pulse.start();
 
-    // Step cycling
     const stepTimer = setInterval(() => {
       Animated.sequence([
         Animated.timing(stepFade, { toValue: 0, duration: 200, useNativeDriver: true }),
@@ -88,547 +183,493 @@ const AnalyzingScreen = ({ imageUri }: { imageUri: string | null }) => {
       setStepIndex(prev => (prev + 1) % ANALYSIS_STEPS.length);
     }, 1500);
 
-    return () => {
-      pulse.stop();
-      clearInterval(stepTimer);
-    };
+    return () => { pulse.stop(); clearInterval(stepTimer); };
   }, []);
 
   const currentStep = ANALYSIS_STEPS[stepIndex];
+  const isMultiple = fileUris.length > 1;
 
   return (
     <Animated.View style={[styles.analyzingContainer, { opacity: fadeAnim }]}>
-      {/* Image thumbnail */}
-      {imageUri && (
-        <View style={styles.analyzingImageWrap}>
-          <Image source={{ uri: imageUri }} style={styles.analyzingImage} />
-          <View style={styles.analyzingImageOverlay} />
-          {/* Scanning line */}
-          <ScanningLine />
-        </View>
-      )}
-
-      {/* Pulsing AI orb */}
       <View style={styles.orbContainer}>
         <Animated.View style={[styles.orbRing, { transform: [{ scale: pulseAnim }] }]} />
-        <View style={styles.orb}>
-          <Text style={styles.orbIcon}>🤖</Text>
-        </View>
+        <View style={styles.orb}><Text style={styles.orbIcon}>🤖</Text></View>
       </View>
-
-      {/* Step text */}
       <Animated.View style={{ opacity: stepFade, alignItems: 'center' }}>
         <Text style={styles.stepIcon}>{currentStep.icon}</Text>
         <Text style={styles.analyzingTitle}>{currentStep.label}</Text>
       </Animated.View>
-      <Text style={styles.analyzingSubtitle}>Gemini AI is reading your document</Text>
-
-      {/* Progress dots */}
-      <View style={styles.dotsRow}>
-        {ANALYSIS_STEPS.map((_, i) => (
-          <View
-            key={i}
-            style={[styles.dot, i === stepIndex && styles.dotActive]}
-          />
-        ))}
-      </View>
-    </Animated.View>
-  );
-};
-
-// Thin animated scanning line
-const ScanningLine = () => {
-  const scanAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(scanAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
-        Animated.timing(scanAnim, { toValue: 0, duration: 1200, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-
-  const translateY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 120] });
-  return (
-    <Animated.View style={[styles.scanLine, { transform: [{ translateY }] }]} />
-  );
-};
-
-// ─── Celebration Card ────────────────────────────────────────────────────────
-const CelebrationCard = ({ parsedData, onDone }: { parsedData: ParsedData | null; onDone: () => void }) => {
-  const scaleAnim = useRef(new Animated.Value(0.5)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  const checkAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: 1, tension: 100, friction: 8, useNativeDriver: true }),
-      Animated.timing(opacityAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-    ]).start(() => {
-      Animated.spring(checkAnim, { toValue: 1, tension: 120, friction: 6, useNativeDriver: true }).start();
-    });
-  }, []);
-
-  return (
-    <Animated.View style={[styles.celebContainer, { opacity: opacityAnim, transform: [{ scale: scaleAnim }] }]}>
-      <ConfettiOverlay play />
-      {/* Check circle */}
-      <Animated.View style={[styles.celebCheck, { transform: [{ scale: checkAnim }] }]}>
-        <Text style={styles.celebCheckIcon}>✓</Text>
-      </Animated.View>
-
-      <Text style={styles.celebTitle}>Report Submitted!</Text>
-      <Text style={styles.celebSubtitle}>Your report has been recorded and sent to the supervisor.</Text>
-
-      {/* Summary pill */}
-      {parsedData && (
-        <View style={styles.celebSummary}>
-          <View style={styles.celebRow}>
-            <Feather name="user" size={14} color={colors.primaryGreen} />
-            <Text style={styles.celebRowText}>{parsedData.name || '—'}</Text>
-          </View>
-          <View style={styles.celebRow}>
-            <Feather name="map-pin" size={14} color={colors.primaryGreen} />
-            <Text style={styles.celebRowText}>{parsedData.location || '—'}</Text>
-          </View>
-          <View style={styles.celebRow}>
-            <Feather name="alert-circle" size={14} color={colors.primarySaffron} />
-            <Text style={[styles.celebRowText, { color: colors.primarySaffron }]}>{parsedData.issue_type || '—'}</Text>
-          </View>
-        </View>
-      )}
-
-      <TouchableOpacity style={styles.celebBtn} onPress={onDone} activeOpacity={0.85}>
-        <Text style={styles.celebBtnText}>Report Another Issue</Text>
-      </TouchableOpacity>
+      <Text style={styles.analyzingSubtitle}>
+        {isMultiple ? `Processing ${fileUris.length} documents...` : 'Gemini AI is reading your document'}
+      </Text>
     </Animated.View>
   );
 };
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export const ScanSurveyScreen = () => {
+  const route = useRoute<any>();
+  const [mainView, setMainView] = useState<'scan_home' | 'field_report'>('scan_home');
   const [mode, setMode] = useState<ScreenMode>('idle');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [deletingReport, setDeletingReport] = useState(false);
-  const [scannedImage, setScannedImage] = useState<string | null>(null);
-  const [parsedData, setParsedData] = useState<ParsedData | null>(null);
-  // Reports list
+  
+  // Data State
+  const [scannedFiles, setScannedFiles] = useState<{uri: string, type: string, name: string}[]>([]);
+  const [batchResults, setBatchResults] = useState<{parsed: ParsedData, file: any, url?: string}[]>([]);
+  const [currentEditIndex, setCurrentEditIndex] = useState(0);
+  const [lastReportId, setLastReportId] = useState<string | null>(null);
+
   const [reports, setReports] = useState<Report[]>([]);
   const [loadingReports, setLoadingReports] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  // Bottom sheet - 'displayedReport' persists through close animation
-  // clearTimeoutRef cancels stale clears when a new card is tapped quickly
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
-  const [displayedReport, setDisplayedReport] = useState<Report | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+
+  // Bottom Sheet
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const clearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const snapPoints = React.useMemo(() => ['55%', '85%'], []);
+  const [displayedReport, setDisplayedReport] = useState<Report | null>(null);
 
-  const openReportDetail = (report: Report) => {
-    // Cancel any pending clear so stale timeouts don't wipe the new data
-    if (clearTimeoutRef.current) {
-      clearTimeout(clearTimeoutRef.current);
-      clearTimeoutRef.current = null;
+  // Full Image Viewer
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerUri, setViewerUri] = useState<string | null>(null);
+
+  useFocusEffect(useCallback(() => { fetchReports(); }, []));
+
+  useEffect(() => {
+    if (route.params?.autoOpenReportId && reports.length > 0) {
+      const target = reports.find(r => r.id === route.params.autoOpenReportId);
+      if (target) {
+        setDisplayedReport(target);
+        bottomSheetRef.current?.expand();
+      }
     }
-    setDisplayedReport(report);
-    setSelectedReport(report);
-    requestAnimationFrame(() => {
-      bottomSheetRef.current?.expand();
-    });
-  };
-
-  const scheduleClear = () => {
-    clearTimeoutRef.current = setTimeout(() => {
-      setDisplayedReport(null);
-      setSelectedReport(null);
-      clearTimeoutRef.current = null;
-    }, 400);
-  };
-
-  const closeSheet = () => {
-    bottomSheetRef.current?.close();
-    scheduleClear();
-  };
-
-  // Fetch reports every time the screen is focused
-  useFocusEffect(
-    useCallback(() => {
-      fetchReports();
-    }, [])
-  );
+  }, [route.params?.autoOpenReportId, reports]);
 
   const fetchReports = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/reports`);
       const json = await res.json();
       if (json.success) setReports(json.reports);
-    } catch (e) {
-      console.error('Failed to fetch reports:', e);
-    } finally {
-      setTimeout(() => {
-        setLoadingReports(false);
-        setRefreshing(false);
-      }, 800);
-    }
+    } catch (e) { console.error(e); } finally { setLoadingReports(false); setRefreshing(false); }
   };
 
   const onRefresh = () => { setRefreshing(true); fetchReports(); };
 
-  // ── Delete report ──
-  const handleDeleteReport = (report: Report) => {
+  const handleDeleteReport = async (id: string) => {
     Alert.alert(
       'Delete Report',
-      `Are you sure you want to delete the report for "${report.citizen_name}"? This action cannot be undone.`,
+      'Are you sure you want to delete this report? This will also remove any audio/photo attachments from the server.',
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
+        { 
+          text: 'Delete', 
           style: 'destructive',
           onPress: async () => {
-            setDeletingReport(true);
             try {
-              const res = await fetch(`${API_BASE_URL}/reports/${report.id}`, { method: 'DELETE' });
-              const json = await res.json();
-              if (json.success) {
-                // Remove from local list immediately for instant UI feedback
-                setReports(prev => prev.filter(r => r.id !== report.id));
-                closeSheet();
+              const res = await fetch(`${API_BASE_URL}/reports/${id}`, { method: 'DELETE' });
+              const data = await res.json();
+              if (data.success) {
+                bottomSheetRef.current?.close();
+                setDisplayedReport(null);
+                fetchReports();
               } else {
-                Alert.alert('Error', json.detail || 'Failed to delete report.');
+                Alert.alert('Error', data.detail || 'Failed to delete');
               }
             } catch (e) {
-              Alert.alert('Error', 'Network error. Could not delete report.');
-            } finally {
-              setDeletingReport(false);
+              Alert.alert('Error', 'Network error while deleting');
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  // ── Image capture ──
+  // ── Actions ──
   const openCamera = async () => {
-    try {
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        setScannedImage(uri);
-        setMode('processing');
-        processImage(uri);
-      }
-    } catch (error) {
-      console.error('Camera error:', error);
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    if (!result.canceled) {
+      const file = { uri: result.assets[0].uri, type: 'image/jpeg', name: 'scan.jpg'};
+      setScannedFiles([file]);
+      processBatch([file]);
     }
   };
 
-  const pickImage = async () => {
+  const pickFiles = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.8,
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        multiple: true,
       });
-      if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        setScannedImage(uri);
-        setMode('processing');
-        processImage(uri);
+      if (!result.canceled && result.assets.length > 0) {
+        const files = result.assets.map(a => ({
+          uri: a.uri, type: a.mimeType || 'application/pdf', name: a.name || 'document.pdf'
+        }));
+        setScannedFiles(files);
+        processBatch(files);
       }
-    } catch (error) {
-      console.error('Gallery error:', error);
-    }
+    } catch (error) { console.error(error); }
   };
 
-  // ── OCR + Gemini ──
-  const processImage = async (uri: string) => {
+  const processBatch = async (files: {uri: string, type: string, name: string}[]) => {
+    setMode('processing');
     setIsProcessing(true);
     try {
-      const formData = new FormData();
-      // @ts-ignore
-      formData.append('file', { uri, name: 'scan.jpg', type: 'image/jpeg' });
-
-      const response = await fetch(`${API_BASE_URL}/scan-form`, {
-        method: 'POST',
-        body: formData,
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        setParsedData(result.parsed_data);
-        setMode('preview');
-      } else {
-        throw new Error(result.detail || 'Failed to process form');
+      const results = [];
+      for (const file of files) {
+        const formData = new FormData();
+        // @ts-ignore
+        formData.append('file', file);
+        
+        const response = await fetch(`${API_BASE_URL}/scan-form`, {
+          method: 'POST', body: formData, headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        const result = await response.json();
+        if (result.success) {
+          results.push({ parsed: result.parsed_data, file, url: result.url });
+        }
       }
+      setBatchResults(results);
+      setCurrentEditIndex(0);
+      setMode('preview');
     } catch (error) {
-      console.error('Processing error:', error);
+      Alert.alert('Analysis Failed', 'Could not process the documents.');
       setMode('idle');
-      setScannedImage(null);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // ── Submit ──
-  const handleSubmit = async () => {
-    if (!parsedData) return;
+  const submitCurrentAndNext = async () => {
     setIsProcessing(true);
     try {
+      const currentFileNode = batchResults[currentEditIndex];
+      const currentData = currentFileNode.parsed;
+      const payload = {
+        ...currentData,
+        volunteer_id: 'vol_123',
+        report_source: 'scan',
+        photo_url: currentFileNode.url
+      };
+      
       const response = await fetch(`${API_BASE_URL}/submit-report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          citizen_name: parsedData.name,
-          phone: parsedData.phone,
-          location: parsedData.location,
-          issue_type: parsedData.issue_type,
-          description: parsedData.description,
-          volunteer_id: 'vol_123',
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       const result = await response.json();
+      
       if (result.success) {
-        setMode('success'); // Show celebration card
-        fetchReports();
-      } else {
-        throw new Error(result.detail || 'Submission failed');
-      }
-    } catch (error) {
-      console.error('Submit error:', error);
-    } finally {
-      setIsProcessing(false);
-    }
+        setLastReportId(result.report_id);
+        if (currentEditIndex < batchResults.length - 1) {
+          setCurrentEditIndex(prev => prev + 1);
+        } else {
+          setMode('success');
+          fetchReports();
+        }
+      } else { throw new Error(result.detail); }
+    } catch (error: any) {
+      Alert.alert('Submission Error', error.message);
+    } finally { setIsProcessing(false); }
   };
 
   const resetFlow = () => {
     setMode('idle');
-    setScannedImage(null);
-    setParsedData(null);
+    setScannedFiles([]);
+    setBatchResults([]);
+    setLastReportId(null);
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-  const renderContent = () => {
-    switch (mode) {
-      // ── IDLE: selection cards + report history ──
-      case 'idle':
-        return (
-          <ScrollView
-            contentContainerStyle={styles.idleScroll}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primaryGreen} />}
-          >
-            <Text style={styles.sectionLabel}>NEW SURVEY</Text>
-            <View style={styles.selectionGrid}>
-              <SelectionCard
-                icon="camera"
-                title="Open Camera"
-                description="Capture form directly"
-                onPress={openCamera}
-                color={colors.primaryGreen}
-              />
-              <SelectionCard
-                icon="image"
-                title="From Gallery"
-                description="Upload existing photo"
-                onPress={pickImage}
-                color={colors.accentBlue}
-              />
-            </View>
+  if (mainView === 'field_report') {
+    return <FieldReportScreen onBack={() => setMainView('scan_home')} />;
+  }
 
-            <Text style={styles.sectionLabel}>
-              PREVIOUS REPORTS ({reports.length})
-            </Text>
-            {loadingReports ? (
-              <View style={{ marginTop: spacing.lg }}>
-                <ShimmerCardList count={3} />
+  const renderPreviewForm = () => {
+    const fileNode = batchResults[currentEditIndex];
+    if (!fileNode) return null;
+    const { parsed, file } = fileNode;
+
+    const updateField = (field: keyof ParsedData, val: any) => {
+      const newResults = [...batchResults];
+      newResults[currentEditIndex].parsed = { ...newResults[currentEditIndex].parsed, [field]: val };
+      setBatchResults(newResults);
+    };
+
+    return (
+      <View style={{ flex: 1 }}>
+        <Text style={styles.batchInfo}>
+          Reviewing Document {currentEditIndex + 1} of {batchResults.length}
+        </Text>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {file.type.startsWith('image/') ? (
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              style={styles.imageCard}
+              onPress={() => {
+                setViewerUri(file.uri);
+                setViewerVisible(true);
+              }}
+            >
+              <Image source={{ uri: file.uri }} style={styles.previewImage} resizeMode="cover" />
+              <View style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', padding: 6, borderRadius: 20 }}>
+                <Feather name="maximize" size={16} color="#FFF" />
               </View>
-            ) : reports.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Feather name="inbox" size={36} color={colors.textSecondary} />
-                <Text style={styles.emptyText}>No reports yet. Scan a form to get started!</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              style={[styles.imageCard, { backgroundColor: colors.primaryGreen + '10', justifyContent: 'center', alignItems: 'center' }]}
+              onPress={() => {
+                import('react-native').then(rn => rn.Linking.openURL(file.uri));
+              }}
+            >
+              <Feather name="file-text" size={64} color={colors.primaryGreen} />
+              <Text style={{ ...typography.bodyText, color: colors.primaryGreen, marginTop: spacing.sm, fontWeight: '700' }}>PDF Document Attached</Text>
+              <View style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', padding: 6, borderRadius: 20 }}>
+                <Feather name="external-link" size={16} color="#FFF" />
               </View>
-            ) : (
-              reports.map((item) => (
-                <ReportCard key={item.id} report={item} onPress={() => openReportDetail(item)} />
-              ))
-            )}
-          </ScrollView>
-        );
+            </TouchableOpacity>
+          )}
 
-      // ── PROCESSING: Immersive AI Analyzing ──
-      case 'processing':
-        return <AnalyzingScreen imageUri={scannedImage} />;
-
-      // ── PREVIEW / EDIT ──
-      case 'preview':
-        return (
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {scannedImage && (
-              <View style={styles.imageCard}>
-                <Image source={{ uri: scannedImage }} style={styles.previewImage} />
-                <View style={styles.imageOverlay}>
-                  <Text style={styles.imageTitle}>Scanned Document</Text>
-                </View>
-              </View>
-            )}
-            <View style={styles.formContainer}>
-              <View style={styles.premiumCard}>
-                <Text style={styles.formTitle}>Verify Information</Text>
-                <Text style={styles.formSubtitle}>Ensure the AI correctly captured all details.</Text>
-
-                <FormField label="Name" value={parsedData?.name || ''}
-                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, name: t } : null)} />
-                <FormField label="Phone" value={parsedData?.phone || ''} keyboardType="phone-pad"
-                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, phone: t } : null)} />
-                <FormField label="Location" value={parsedData?.location || ''}
-                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, location: t } : null)} />
-                <FormField label="Issue Type" value={parsedData?.issue_type || ''}
-                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, issue_type: t } : null)} />
-                <FormField label="Description" value={parsedData?.description || ''} multiline
-                  onChangeText={(t: string) => setParsedData(p => p ? { ...p, description: t } : null)} />
-              </View>
-
-              <View style={styles.buttonRow}>
-                <PrimaryButton
-                  title={isProcessing ? 'Submitting...' : 'Confirm & Submit'}
-                  onPress={handleSubmit}
-                  style={styles.submitBtn}
-                  disabled={isProcessing}
-                />
-                <TouchableOpacity onPress={resetFlow} style={styles.retakeBtn} disabled={isProcessing}>
-                  <Text style={styles.retakeText}>Discard & Retake</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-        );
-
-      // ── SUCCESS: Celebration Card ──
-      case 'success':
-        return (
-          <View style={styles.celebWrapper}>
-            <CelebrationCard parsedData={parsedData} onDone={resetFlow} />
+          {/* Section 1: Who & Where */}
+          <View style={styles.premiumCard}>
+            <Text style={styles.formSectionTitle}>1. Who & Where</Text>
+            <FormField label="Citizen Name" value={parsed.citizen_name} onChangeText={(t: string) => updateField('citizen_name', t)} />
+            <FormField label="Precise Location" value={parsed.precise_location} onChangeText={(t: string) => updateField('precise_location', t)} />
+            <FormField label="GPS (Auto-extracted)" value={parsed.gps_coordinates} onChangeText={(t: string) => updateField('gps_coordinates', t)} />
           </View>
-        );
-    }
+
+          {/* Section 2: Problem */}
+          <View style={styles.premiumCard}>
+            <Text style={styles.formSectionTitle}>2. The Problem</Text>
+            <FormField label="Primary Category" value={parsed.primary_category} onChangeText={(t: string) => updateField('primary_category', t)} />
+            <FormField label="Sub-Category" value={parsed.sub_category} onChangeText={(t: string) => updateField('sub_category', t)} />
+            <FormField label="Urgency" value={parsed.urgency_level} onChangeText={(t: string) => updateField('urgency_level', t)} />
+          </View>
+
+          {/* Section 3: Impact */}
+          <View style={styles.premiumCard}>
+            <Text style={styles.formSectionTitle}>3. Impact & Severity</Text>
+            <FormField label="Severity Score (AI)" value={parsed.severity_score?.toString()} onChangeText={(t: string) => updateField('severity_score', parseInt(t))} keyboardType="numeric" />
+            <FormField label="Affected Population" value={parsed.population_affected?.toString()} onChangeText={(t: string) => updateField('population_affected', parseInt(t))} keyboardType="numeric" />
+          </View>
+
+          {/* Section 4: Qualitative */}
+          <View style={styles.premiumCard}>
+            <Text style={styles.formSectionTitle}>4. Community Voice</Text>
+            <FormField label="Key Complaints" value={parsed.key_complaints?.join(', ')} onChangeText={(t: string) => updateField('key_complaints', t.split(',').map(s=>s.trim()))} />
+            <FormField label="Sentiment" value={parsed.sentiment} onChangeText={(t: string) => updateField('sentiment', t)} />
+          </View>
+
+          <View style={styles.buttonRow}>
+            <PrimaryButton
+              title={isProcessing ? 'Submitting...' : (currentEditIndex < batchResults.length - 1 ? 'Save & Next' : 'Submit Final Report')}
+              onPress={submitCurrentAndNext}
+              style={styles.submitBtn}
+              disabled={isProcessing}
+            />
+            <TouchableOpacity onPress={resetFlow} style={styles.retakeBtn}>
+              <Text style={styles.retakeText}>Cancel Batch</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    );
   };
 
   return (
     <View style={styles.container}>
-      <AppHeader
-        title="Scan & Survey"
-        showBack={mode !== 'idle'}
-        onBackPress={resetFlow}
-      />
-      {renderContent()}
+      <AppHeader title="Scan & Survey" showBack={mode !== 'idle'} onBackPress={resetFlow} />
+      
+      {mode === 'idle' && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.idleScroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+          <Text style={styles.sectionLabel}>UPLOAD & DIGITIZE</Text>
+          <View style={styles.selectionGrid}>
+            <SelectionCard icon="file-text" title="Upload Files" description="PDFs & Images (Up to 10)" onPress={pickFiles} color={colors.primaryGreen} />
+            <SelectionCard icon="camera" title="Scan Paper" description="Use Camera" onPress={openCamera} color={colors.accentBlue} />
+            <SelectionCard icon="mic" title="Field Report" description="Photo + Voice + GPS" onPress={() => setMainView('field_report')} color={colors.primarySaffron} />
+          </View>
 
-      {/* Bottom Sheet for Report Details */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
+            <Text style={[styles.sectionLabel, { marginVertical: 0 }]}>RECENT SCANS</Text>
+            <View style={{ width: 140 }}>
+              <DropdownField options={CATEGORIES} selected={selectedCategory === 'All' ? '' : selectedCategory} onSelect={(val: string) => setSelectedCategory(val)} placeholder="All Categories" minimal />
+            </View>
+          </View>
+
+          {loadingReports ? <ShimmerCardList count={3} /> : reports.filter(r => selectedCategory === 'All' || r.primary_category === selectedCategory || r.auto_category === selectedCategory || r.issue_type === selectedCategory).map(r => (
+            <TouchableOpacity key={r.id} style={styles.reportCard} onPress={() => { setDisplayedReport(r); bottomSheetRef.current?.expand(); }}>
+              <View style={styles.reportCardLeft}>
+                <View style={[styles.reportBadge, { backgroundColor: issueColor(r.primary_category || r.auto_category || r.issue_type) + '15' }]}>
+                  <Feather name="file-text" size={20} color={issueColor(r.primary_category || r.auto_category || r.issue_type)} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.reportName} numberOfLines={1}>{r.citizen_name || 'Anonymous'}</Text>
+                  <Text style={styles.reportMetaText} numberOfLines={1}>{r.precise_location || r.location}</Text>
+                </View>
+              </View>
+              <Text style={styles.reportDate}>{formatDate(r.created_at)}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {mode === 'processing' && <AnalyzingScreen fileUris={scannedFiles.map(f => f.uri)} />}
+      {mode === 'preview' && renderPreviewForm()}
+      {mode === 'success' && (
+        <View style={styles.celebWrapper}>
+          <ConfettiOverlay play />
+          <Feather name="check-circle" size={80} color={colors.success} />
+          <Text style={styles.celebTitle}>Successfully Scanned!</Text>
+          <Text style={styles.celebSubtitle}>All documents have been digitized with 20+ parameters extracted.</Text>
+          <View style={{ gap: spacing.md, width: '100%', paddingHorizontal: spacing.xxl }}>
+            {lastReportId && (
+              <TouchableOpacity 
+                style={{ backgroundColor: colors.primaryGreen, padding: spacing.md, borderRadius: 12, alignItems: 'center' }}
+                onPress={() => {
+                  const r = reports.find(rep => rep.id === lastReportId);
+                  if (r) {
+                    setDisplayedReport(r);
+                    setMode('idle');
+                    bottomSheetRef.current?.expand();
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>View Report Details</Text>
+              </TouchableOpacity>
+            )}
+            <PrimaryButton 
+              title="Done" 
+              onPress={resetFlow} 
+              style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.primaryGreen, elevation: 0, shadowOpacity: 0 }} 
+              textStyle={{ color: colors.primaryGreen }} 
+            />
+          </View>
+        </View>
+      )}
+
+      {/* Bottom Sheet for Detail View */}
       <BottomSheet
         ref={bottomSheetRef}
         index={-1}
-        snapPoints={snapPoints}
+        snapPoints={['50%', '85%']}
         enablePanDownToClose
-        onClose={scheduleClear}
-        backgroundStyle={styles.sheetBackground}
-        handleIndicatorStyle={styles.sheetHandle}
+        onClose={() => setDisplayedReport(null)}
+        backgroundStyle={{ backgroundColor: colors.cardBackground, borderRadius: 24 }}
       >
-        <BottomSheetScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.sheetHeader}>
+        <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md, paddingTop: spacing.md }}>
             <Text style={styles.modalTitle}>Report Details</Text>
-            <TouchableOpacity onPress={closeSheet}>
-              <Feather name="x" size={24} color={colors.textPrimary} />
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setDisplayedReport(null)}><Feather name="x" size={24} color={colors.textPrimary} /></TouchableOpacity>
           </View>
-          {/* Use displayedReport so content never disappears mid-animation */}
-          {displayedReport ? (
+          {displayedReport && (
             <>
-              <DetailRow icon="user" label="Citizen Name" value={displayedReport.citizen_name} />
-              <DetailRow icon="phone" label="Phone" value={displayedReport.phone} />
-              <DetailRow icon="map-pin" label="Location" value={displayedReport.location} />
-              <DetailRow icon="alert-triangle" label="Issue Type" value={displayedReport.issue_type} />
-              <DetailRow icon="file-text" label="Description" value={displayedReport.description} />
-              <DetailRow icon="clock" label="Submitted At" value={formatDate(displayedReport.created_at)} />
-              <DetailRow icon="hash" label="Report ID" value={displayedReport.id} />
+              {/* Who & Where */}
+              <View style={{ marginTop: spacing.md, marginBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '20', paddingBottom: 4 }}>
+                <Text style={{ ...typography.captionText, color: colors.primaryGreen, fontWeight: '700', textTransform: 'uppercase' }}>1. Who & Where</Text>
+              </View>
+              <DetailRow icon="user" label="Citizen Name" value={displayedReport.citizen_name || 'Anonymous'} />
+              <DetailRow icon="phone" label="Phone" value={displayedReport.phone || 'N/A'} />
+              <DetailRow icon="map-pin" label="Location" value={displayedReport.precise_location || displayedReport.location || 'N/A'} />
+              {displayedReport.gps_coordinates && <DetailRow icon="navigation" label="GPS" value={displayedReport.gps_coordinates} />}
 
-              {/* Delete button */}
-              <View style={styles.deleteDivider} />
-              <TouchableOpacity
-                style={[styles.deleteBtn, deletingReport && { opacity: 0.6 }]}
-                onPress={() => handleDeleteReport(displayedReport)}
-                disabled={deletingReport}
-                activeOpacity={0.8}
+              {/* Problem */}
+              <View style={{ marginTop: spacing.md, marginBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '20', paddingBottom: 4 }}>
+                <Text style={{ ...typography.captionText, color: colors.primaryGreen, fontWeight: '700', textTransform: 'uppercase' }}>2. The Problem</Text>
+              </View>
+              <DetailRow icon="grid" label="Category" value={displayedReport.primary_category || displayedReport.auto_category || displayedReport.issue_type || 'Uncategorized'} />
+              {displayedReport.sub_category && <DetailRow icon="corner-down-right" label="Sub Category" value={displayedReport.sub_category} />}
+              <DetailRow icon="alert-triangle" label="Urgency" value={displayedReport.urgency_level || 'Moderate'} />
+              <DetailRow icon="clock" label="Duration" value={displayedReport.duration_of_problem} />
+              
+              {/* Qualitative & Impact */}
+              <View style={{ marginTop: spacing.md, marginBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '20', paddingBottom: 4 }}>
+                <Text style={{ ...typography.captionText, color: colors.primaryGreen, fontWeight: '700', textTransform: 'uppercase' }}>3. Impact & Feedback</Text>
+              </View>
+              <DetailRow icon="activity" label="Severity Score" value={displayedReport.severity_score !== undefined ? `${displayedReport.severity_score}/10` : '—'} />
+              <DetailRow icon="users" label="Affected Pop." value={displayedReport.population_affected?.toString()} />
+              <DetailRow icon="message-circle" label="Key Complaints" value={displayedReport.key_complaints?.join(', ')} />
+              <DetailRow icon="smile" label="Sentiment" value={displayedReport.sentiment} />
+              <DetailRow icon="file-text" label="Description" value={displayedReport.description || '—'} />
+
+              {/* Attachments */}
+              {(displayedReport.photo_url || displayedReport.audio_url) && (
+                <View style={{ marginTop: spacing.md, marginBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '20', paddingBottom: 4 }}>
+                  <Text style={{ ...typography.captionText, color: colors.primaryGreen, fontWeight: '700', textTransform: 'uppercase' }}>4. Attachments</Text>
+                </View>
+              )}
+              {displayedReport.photo_url && (
+                displayedReport.photo_url.toLowerCase().endsWith('.pdf') ? (
+                  <TouchableOpacity 
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: spacing.md, borderRadius: 12, borderWidth: 1, borderColor: colors.primaryGreen + '40', marginBottom: spacing.md }}
+                    onPress={() => {
+                       const fullUrl = displayedReport.photo_url!.startsWith('file://') ? displayedReport.photo_url! : API_BASE_URL + displayedReport.photo_url;
+                       import('react-native').then(rn => rn.Linking.openURL(fullUrl));
+                    }}
+                  >
+                    <Feather name="file-text" size={24} color={colors.primaryGreen} />
+                    <Text style={{ ...typography.bodyText, color: colors.primaryGreen, marginLeft: spacing.sm, fontWeight: '700' }}>View PDF Document</Text>
+                    <Feather name="external-link" size={16} color={colors.primaryGreen} style={{ marginLeft: 'auto' }} />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity 
+                    style={{ marginBottom: spacing.md }}
+                    onPress={() => {
+                      setViewerUri(displayedReport.photo_url!.startsWith('file://') ? displayedReport.photo_url! : API_BASE_URL + displayedReport.photo_url);
+                      setViewerVisible(true);
+                    }}
+                  >
+                    <Image source={{ uri: displayedReport.photo_url!.startsWith('file://') ? displayedReport.photo_url! : API_BASE_URL + displayedReport.photo_url }} style={{ width: '100%', height: 220, borderRadius: 16, backgroundColor: colors.textSecondary + '20' }} resizeMode="cover" />
+                    <View style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', padding: 6, borderRadius: 20 }}>
+                      <Feather name="maximize" size={16} color="#FFF" />
+                    </View>
+                  </TouchableOpacity>
+                )
+              )}
+              {displayedReport.audio_url && (
+                <AudioPlayer url={displayedReport.audio_url} />
+              )}
+
+              {/* System Info */}
+              <View style={{ marginTop: spacing.md, marginBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '20', paddingBottom: 4 }}>
+                <Text style={{ ...typography.captionText, color: colors.primaryGreen, fontWeight: '700', textTransform: 'uppercase' }}>5. System Info</Text>
+              </View>
+              <DetailRow icon="hash" label="Report ID" value={displayedReport.id} />
+              <DetailRow icon="user-check" label="Volunteer" value={displayedReport.volunteer_id} />
+              <DetailRow icon="server" label="Source" value={displayedReport.report_source || 'Unknown'} />
+              <DetailRow icon="calendar" label="Created At" value={formatDate(displayedReport.created_at)} />
+
+              <TouchableOpacity 
+                style={{ 
+                  marginTop: spacing.xl, 
+                  backgroundColor: colors.error + '15', 
+                  padding: spacing.md, 
+                  borderRadius: 12, 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: colors.error + '40'
+                }}
+                onPress={() => handleDeleteReport(displayedReport.id)}
               >
-                <Feather name="trash-2" size={16} color="#fff" />
-                <Text style={styles.deleteBtnText}>
-                  {deletingReport ? 'Deleting...' : 'Delete Report'}
-                </Text>
+                <Feather name="trash-2" size={20} color={colors.error} />
+                <Text style={{ ...typography.bodyText, color: colors.error, marginLeft: spacing.sm, fontWeight: '700' }}>Delete Report Entry</Text>
               </TouchableOpacity>
             </>
-          ) : (
-            <View style={styles.sheetPlaceholder}>
-              <Text style={styles.sheetPlaceholderText}>Tap a report card to view details</Text>
-            </View>
           )}
         </BottomSheetScrollView>
       </BottomSheet>
+      <FullImageViewer 
+        visible={viewerVisible} 
+        imageUri={viewerUri} 
+        onClose={() => setViewerVisible(false)} 
+      />
     </View>
   );
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-const SelectionCard = ({ icon, title, description, onPress, color }: any) => (
-  <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
-    <View style={[styles.iconWrapper, { backgroundColor: color + '15' }]}>
-      <IconButton iconName={icon} size={28} iconColor={color} onPress={onPress} />
-    </View>
-    <Text style={styles.cardTitle}>{title}</Text>
-    <Text style={styles.cardDesc}>{description}</Text>
-  </TouchableOpacity>
-);
-
-const ReportCard = ({ report, onPress }: { report: Report; onPress: () => void }) => (
-  <TouchableOpacity style={styles.reportCard} onPress={onPress} activeOpacity={0.85}>
-    <View style={styles.reportCardLeft}>
-      <View style={[styles.reportBadge, { backgroundColor: issueColor(report.issue_type) + '15' }]}>
-        <Text style={[styles.reportBadgeText, { color: issueColor(report.issue_type) }]}>
-          {report.issue_type || 'Unknown'}
-        </Text>
-      </View>
-      <Text style={styles.reportName}>{report.citizen_name || 'Unknown'}</Text>
-      <View style={styles.reportMeta}>
-        <Feather name="map-pin" size={11} color={colors.textSecondary} />
-        <Text style={styles.reportMetaText}>{report.location || '—'}</Text>
-      </View>
-    </View>
-    <View style={styles.reportCardRight}>
-      <Text style={styles.reportDate}>{formatDate(report.created_at)}</Text>
-      <Feather name="chevron-right" size={18} color={colors.textSecondary} />
-    </View>
-  </TouchableOpacity>
-);
-
-const FormField = ({ label, value, onChangeText, multiline = false, keyboardType = 'default' }: any) => (
-  <View style={styles.fieldContainer}>
-    <Text style={styles.label}>{label}</Text>
-    <TextInput
-      style={[styles.input, multiline && styles.textArea]}
-      value={value}
-      onChangeText={onChangeText}
-      multiline={multiline}
-      placeholder={`Enter ${label}`}
-      keyboardType={keyboardType}
-    />
-  </View>
-);
-
-const DetailRow = ({ icon, label, value }: { icon: any; label: string; value: string }) => (
+const DetailRow = ({ icon, label, value }: { icon: any; label: string; value?: string }) => (
   <View style={styles.detailRow}>
-    <View style={styles.detailIconWrap}>
-      <Feather name={icon} size={15} color={colors.primaryGreen} />
-    </View>
+    <View style={styles.detailIconWrap}><Feather name={icon} size={16} color={colors.primaryGreen} /></View>
     <View style={{ flex: 1 }}>
       <Text style={styles.detailLabel}>{label}</Text>
       <Text style={styles.detailValue}>{value || '—'}</Text>
@@ -636,349 +677,127 @@ const DetailRow = ({ icon, label, value }: { icon: any; label: string; value: st
   </View>
 );
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+const SelectionCard = ({ icon, title, description, onPress, color }: any) => (
+  <TouchableOpacity style={styles.card} onPress={onPress}>
+    <View style={[styles.iconWrapper, { backgroundColor: color + '15' }]}>
+      <Feather name={icon} size={28} color={color} />
+    </View>
+    <Text style={styles.cardTitle}>{title}</Text>
+    <Text style={styles.cardDesc}>{description}</Text>
+  </TouchableOpacity>
+);
+
+const FormField = ({ label, value, onChangeText, keyboardType = 'default' }: any) => (
+  <View style={styles.fieldContainer}>
+    <Text style={styles.label}>{label}</Text>
+    <TextInput style={styles.input} value={value} onChangeText={onChangeText} keyboardType={keyboardType} />
+  </View>
+);
+
+const DropdownField = ({ label, options, selected, onSelect, placeholder = 'Select an option', minimal = false }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <View style={[styles.fieldContainer, minimal && { marginBottom: 0 }]}>
+      {label && <Text style={styles.label}>{label}</Text>}
+      <TouchableOpacity 
+        style={[styles.input, minimal && { padding: spacing.sm, minHeight: 40 }, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} 
+        onPress={() => setIsOpen(true)}
+        activeOpacity={0.8}
+      >
+        <Text numberOfLines={1} style={{ ...typography.bodyText, flex: 1, color: selected ? colors.textPrimary : colors.textSecondary + '80' }}>
+          {selected || placeholder}
+        </Text>
+        <Feather name="chevron-down" size={16} color={colors.textSecondary} />
+      </TouchableOpacity>
+      
+      <Modal visible={isOpen} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>{label || placeholder}</Text>
+                <ScrollView style={{ maxHeight: 300 }}>
+                  {options.map((opt: string) => (
+                    <TouchableOpacity 
+                      key={opt} 
+                      style={[styles.dropdownItem, selected === opt && styles.dropdownItemActive]}
+                      onPress={() => { onSelect(opt); setIsOpen(false); }}
+                    >
+                      <Text style={{ ...typography.bodyText, fontSize: 15, color: selected === opt ? colors.primaryGreen : colors.textPrimary, fontWeight: selected === opt ? '700' : '400' }}>
+                        {opt}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-
-  // Idle
-  idleScroll: { padding: spacing.lg, paddingBottom: spacing.xxl * 2 },
-  sectionLabel: {
-    ...typography.captionText,
-    color: colors.textSecondary,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    marginBottom: spacing.md,
-    marginTop: spacing.md,
-  },
-  selectionGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  card: {
-    flex: 1,
-    backgroundColor: colors.cardBackground,
-    borderRadius: 16,
-    padding: spacing.lg,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.textSecondary + '20',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  iconWrapper: {
-    width: 56, height: 56, borderRadius: 28,
-    justifyContent: 'center', alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  cardTitle: { ...typography.headingSmall, fontSize: 14, textAlign: 'center', color: colors.textPrimary, marginBottom: 4 },
-  cardDesc: { ...typography.captionText, textAlign: 'center', color: colors.textSecondary },
-
-  // Report card
-  reportCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-  },
+  idleScroll: { padding: spacing.lg },
+  sectionLabel: { ...typography.captionText, color: colors.textSecondary, fontWeight: '700', marginVertical: spacing.md },
+  selectionGrid: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xl },
+  card: { flex: 1, backgroundColor: colors.cardBackground, borderRadius: 16, padding: spacing.md, alignItems: 'center', elevation: 2 },
+  iconWrapper: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.sm },
+  cardTitle: { ...typography.bodyText, fontWeight: '700', textAlign: 'center' },
+  cardDesc: { ...typography.captionText, textAlign: 'center', fontSize: 10 },
+  
+  reportCard: { backgroundColor: colors.cardBackground, borderRadius: 12, padding: spacing.md, marginVertical: spacing.xs, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 1 },
   reportCardLeft: { flex: 1 },
-  reportBadge: { alignSelf: 'flex-start', paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 20, marginBottom: 6 },
-  reportBadgeText: { fontSize: 11, fontWeight: '700' },
-  reportName: { ...typography.bodyText, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
-  reportMeta: { flexDirection: 'row', alignItems: 'center' },
-  reportMetaText: { ...typography.captionText, color: colors.textSecondary, marginLeft: 4 },
-  reportCardRight: { alignItems: 'flex-end', marginLeft: spacing.md },
-  reportDate: { ...typography.captionText, color: colors.textSecondary, marginBottom: 4 },
+  reportBadge: { alignSelf: 'flex-start', paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12, marginBottom: 4 },
+  reportBadgeText: { fontSize: 10, fontWeight: '700' },
+  reportName: { ...typography.bodyText, fontWeight: '600' },
+  reportMetaText: { ...typography.captionText, color: colors.textSecondary },
+  reportDate: { ...typography.captionText, color: colors.textSecondary },
 
-  emptyBox: { alignItems: 'center', paddingVertical: spacing.xl },
-  emptyText: { ...typography.bodyText, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.md },
+  analyzingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
+  orbContainer: { width: 100, height: 100, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.xl },
+  orbRing: { position: 'absolute', width: 100, height: 100, borderRadius: 50, borderWidth: 2, borderColor: colors.primarySaffron + '60' },
+  orb: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.primarySaffron + '20', justifyContent: 'center', alignItems: 'center' },
+  orbIcon: { fontSize: 32 },
+  stepIcon: { fontSize: 32, marginBottom: spacing.sm },
+  analyzingTitle: { ...typography.headingSmall, textAlign: 'center', marginBottom: 4 },
+  analyzingSubtitle: { ...typography.captionText, textAlign: 'center', color: colors.textSecondary },
 
-  // ── Analyzing Screen ──
-  analyzingContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    gap: spacing.lg,
-  },
-  analyzingImageWrap: {
-    width: '80%',
-    height: 130,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#111',
-    position: 'relative',
-    marginBottom: spacing.md,
-  },
-  analyzingImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-    opacity: 0.7,
-  },
-  analyzingImageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  scanLine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: colors.primaryGreen,
-    opacity: 0.9,
-    shadowColor: colors.primaryGreen,
-    shadowRadius: 8,
-    shadowOpacity: 1,
-  },
-  orbContainer: {
-    width: 90,
-    height: 90,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  orbRing: {
-    position: 'absolute',
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    borderWidth: 2,
-    borderColor: colors.primarySaffron + '60',
-  },
-  orb: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: colors.primarySaffron + '20',
-    borderWidth: 2,
-    borderColor: colors.primarySaffron,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  orbIcon: { fontSize: 28 },
-  stepIcon: { fontSize: 24, marginBottom: 4 },
-  analyzingTitle: {
-    ...typography.headingSmall,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  analyzingSubtitle: {
-    ...typography.captionText,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: spacing.md,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.textSecondary + '40',
-  },
-  dotActive: {
-    backgroundColor: colors.primarySaffron,
-    width: 20,
-  },
+  batchInfo: { ...typography.headingSmall, textAlign: 'center', paddingVertical: spacing.md, backgroundColor: colors.primaryGreen + '15', color: colors.primaryGreen },
+  scrollContent: { padding: spacing.lg, paddingBottom: 100 },
+  premiumCard: { backgroundColor: '#fff', borderRadius: 20, padding: spacing.lg, marginBottom: spacing.md, elevation: 3 },
+  formSectionTitle: { ...typography.headingSmall, color: colors.primaryGreen, marginBottom: spacing.md },
+  fieldContainer: { marginBottom: spacing.md },
+  label: { ...typography.captionText, color: colors.textSecondary, marginBottom: 4, fontWeight: '700' },
+  input: { backgroundColor: colors.background, borderRadius: 12, padding: spacing.md, borderWidth: 1, borderColor: colors.textSecondary + '20' },
+  
+  imageCard: { borderRadius: 16, overflow: 'hidden', marginBottom: spacing.md, height: 200 },
+  previewImage: { width: '100%', height: '100%' },
 
-  // ── Celebration Card ──
-  celebWrapper: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  celebContainer: {
-    width: '100%',
-    backgroundColor: colors.cardBackground,
-    borderRadius: 28,
-    padding: spacing.xl,
-    alignItems: 'center',
-    elevation: 12,
-    shadowColor: colors.primaryGreen,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-  },
-  celebCheck: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primaryGreen,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-    shadowColor: colors.primaryGreen,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  celebCheckIcon: {
-    color: '#fff',
-    fontSize: 36,
-    fontWeight: '700',
-  },
-  celebTitle: {
-    ...typography.headingLarge,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
-    fontSize: 24,
-  },
-  celebSubtitle: {
-    ...typography.bodyText,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-    lineHeight: 22,
-  },
-  celebSummary: {
-    width: '100%',
-    backgroundColor: colors.background,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.xl,
-    gap: spacing.sm,
-  },
-  celebRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  celebRowText: {
-    ...typography.bodyText,
-    color: colors.textPrimary,
-    fontWeight: '500',
-  },
-  celebBtn: {
-    backgroundColor: colors.primarySaffron,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: 50,
-    elevation: 4,
-    shadowColor: colors.primarySaffron,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-  },
-  celebBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-
-  // Preview / form
-  scrollContent: { paddingBottom: spacing.xxl },
-  imageCard: {
-    margin: spacing.lg,
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-  },
-  previewImage: { width: '100%', height: 250, resizeMode: 'cover', opacity: 0.9 },
-  imageOverlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: spacing.md, backgroundColor: 'rgba(0,0,0,0.4)'
-  },
-  imageTitle: { color: '#fff', fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
-  formContainer: { paddingHorizontal: spacing.lg },
-  premiumCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 24,
-    padding: spacing.xl,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  formTitle: { ...typography.headingMedium, color: colors.textPrimary, marginBottom: 4 },
-  formSubtitle: { ...typography.captionText, color: colors.textSecondary, marginBottom: spacing.xl },
-  fieldContainer: { marginBottom: spacing.lg },
-  label: {
-    ...typography.captionText,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-    fontSize: 10,
-  },
-  input: {
-    backgroundColor: colors.background,
-    borderRadius: 12, padding: spacing.md,
-    borderWidth: 1, borderColor: colors.textSecondary + '20',
-    ...typography.bodyText,
-  },
-  textArea: { height: 100, textAlignVertical: 'top' },
-  buttonRow: { marginTop: spacing.xl, marginBottom: spacing.xl },
-  submitBtn: { width: '100%' },
-  retakeBtn: { marginTop: spacing.lg, alignItems: 'center' },
+  buttonRow: { marginTop: spacing.md },
+  submitBtn: { flex: 1, marginBottom: spacing.md },
+  retakeBtn: { alignItems: 'center' },
   retakeText: { ...typography.bodyText, color: colors.error, fontWeight: '600' },
 
-  // Bottom sheet
-  sheetBackground: { backgroundColor: colors.cardBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  sheetHandle: { backgroundColor: colors.textSecondary + '40', width: 40, height: 4, borderRadius: 2 },
-  sheetContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl },
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl, paddingTop: spacing.md },
-  modalTitle: { ...typography.headingMedium, color: colors.textPrimary },
-  sheetPlaceholder: { alignItems: 'center', paddingVertical: spacing.xxl },
-  sheetPlaceholderText: { ...typography.captionText, color: colors.textSecondary },
-  detailRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.lg },
-  detailIconWrap: {
-    width: 32, height: 32, borderRadius: 8,
-    backgroundColor: colors.primaryGreen + '15',
-    justifyContent: 'center', alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  detailLabel: { ...typography.captionText, color: colors.textSecondary, marginBottom: 2, textTransform: 'uppercase', fontSize: 11 },
-  detailValue: { ...typography.bodyText, color: colors.textPrimary },
+  celebWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  celebTitle: { ...typography.headingLarge, marginVertical: spacing.sm },
+  celebSubtitle: { ...typography.bodyText, textAlign: 'center', color: colors.textSecondary, marginBottom: spacing.xl },
 
-  // Delete button in sheet
-  deleteDivider: {
-    height: 1,
-    backgroundColor: colors.textSecondary + '20',
-    marginVertical: spacing.lg,
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.md },
+  detailIconWrap: { width: 32, height: 32, borderRadius: 8, backgroundColor: colors.primaryGreen + '15', justifyContent: 'center', alignItems: 'center', marginRight: spacing.md },
+  detailLabel: { ...typography.captionText, color: colors.textSecondary, textTransform: 'uppercase', fontSize: 10 },
+  detailValue: { ...typography.bodyText },
+
+  dropdownList: {
+    marginTop: spacing.xs, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: colors.textSecondary + '30',
+    overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4,
   },
-  deleteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.error,
-    borderRadius: 14,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.md,
-    elevation: 3,
-    shadowColor: colors.error,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  deleteBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 15,
-  },
+  dropdownItem: { padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '10' },
+  dropdownItemActive: { backgroundColor: colors.primaryGreen + '10' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  modalContent: { backgroundColor: '#fff', borderRadius: 16, width: '100%', paddingVertical: spacing.md, elevation: 5 },
+  modalTitle: { ...typography.headingSmall, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.textSecondary + '20', marginBottom: spacing.sm },
 });

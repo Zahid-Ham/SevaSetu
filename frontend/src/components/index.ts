@@ -24,6 +24,8 @@ export * from './common/AnimatedPressable';
 export * from './common/SkeletonCard';
 export * from './common/LottieAnimations';
 export * from './common/ConfettiOverlay';
+export * from './common/FullImageViewer';
+
 
 // Maps
 export * from './maps/MapMarker';

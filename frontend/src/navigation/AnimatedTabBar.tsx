@@ -20,6 +20,7 @@ type FeatherIconName = keyof typeof Feather.glyphMap;
 const ICON_MAP: Record<string, FeatherIconName> = {
   Home: 'home',
   'Tasks Map': 'map',
+  'Digital Form': 'edit-3',
   'Scan Survey': 'camera',
   Learning: 'book-open',
   Profile: 'user',
