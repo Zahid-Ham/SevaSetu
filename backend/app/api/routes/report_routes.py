@@ -1,11 +1,12 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form  # type: ignore
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form # type: ignore
 import tempfile
 import os
 import uuid
-from app.models.report_model import ReportCreate  # type: ignore
-from app.services.firestore_service import save_report, get_all_reports, delete_report, db  # type: ignore
-from app.services.whisper_service import transcribe_audio  # type: ignore
-from app.services.gemini_service import generate_field_report_from_multimedia  # type: ignore
+from app.models.report_model import ReportCreate # type: ignore
+from app.services.firestore_service import save_report, get_all_reports, delete_report, db # type: ignore
+from app.services.whisper_service import transcribe_audio # type: ignore
+from app.services.gemini_service import generate_field_report_from_multimedia # type: ignore
+from app.services.analysis_service import get_previous_complaints_insights # type: ignore
 
 router = APIRouter()
 
@@ -52,6 +53,12 @@ async def create_field_report(
         
         # Synthesize with Gemini
         parsed_data = generate_field_report_from_multimedia(photo_bytes, transcript, location)
+        
+        # Enrich with previous complaints insights
+        primary_cat = parsed_data.get("primary_category", "")
+        sub_cat = parsed_data.get("sub_category", "")
+        insights = get_previous_complaints_insights(primary_cat, sub_cat)
+        parsed_data["previous_complaints_insights"] = insights
         
         return {
             "success": True,

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException  # type: ignore
+from fastapi import APIRouter, UploadFile, File, HTTPException # type: ignore
 from typing import List
 import asyncio
-from app.services.gemini_service import process_document_and_extract  # type: ignore
+from app.services.gemini_service import process_document_and_extract # type: ignore
+from app.services.analysis_service import get_previous_complaints_insights # type: ignore
 
 router = APIRouter()
 
@@ -31,8 +32,14 @@ async def scan_form(file: UploadFile = File(...)):
 
         # Use Gemini Vision natively on images or PDFs
         result = process_document_and_extract(image_bytes, mime_type=file.content_type)
+        
+        # Enrich with previous complaints insights
+        primary_cat = result.get("primary_category", "")
+        sub_cat = result.get("sub_category", "")
+        insights = get_previous_complaints_insights(primary_cat, sub_cat)
+        result["previous_complaints_insights"] = insights
 
-        raw_text = result.pop("description", "No description available")
+        raw_text = result.get("description", "No description available")
 
         return {
             "success": True,
