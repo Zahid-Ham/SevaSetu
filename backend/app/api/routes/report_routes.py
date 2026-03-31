@@ -114,8 +114,7 @@ async def delete_report_endpoint(report_id: str):
     Also removes associated static media (photo/audio) from the local server.
     """
     try:
-        from app.services.firestore_service import db
-        doc_ref = db.collection('reports').document(report_id)
+        doc_ref = db.collection("community_reports").document(report_id)
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict()

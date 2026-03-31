@@ -1,0 +1,612 @@
+/**
+ * AssignmentScreen.tsx
+ * Volunteer view — Pending / Accepted / Past assignments.
+ * Pending tab shows REAL-TIME matches against confirmed live events.
+ * Each card has an "AI Reasoning" button showing why the volunteer was matched.
+ */
+
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  Animated, ActivityIndicator, RefreshControl, Modal,
+  TouchableWithoutFeedback, Platform,
+} from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+import { useEventStore } from '../../services/store/useEventStore';
+import { LiveMatch, VolunteerAssignment } from '../../services/api/eventPredictionService';
+import { colors, spacing, typography, globalStyles } from '../../theme';
+import { AppHeader } from '../../components';
+
+const TABS = ['Pending', 'Accepted', 'Past'] as const;
+type Tab = typeof TABS[number];
+
+const SKILL_ICONS: Record<string, string> = {
+  first_aid: '🩺', logistics: '📦', teaching: '📚',
+  construction: '🔧', medical: '💊', crowd_management: '👥',
+  documentation: '📝', cooking: '🍳', driving: '🚗', counseling: '💬',
+};
+
+const CATEGORY_ICONS: Record<string, string> = {
+  Water: '💧', Health: '🏥', Sanitation: '🧹', Education: '📚',
+  Infrastructure: '🏗️', Safety: '🦺',
+};
+
+// ── AI Reasoning Modal ─────────────────────────────────────────────────────────
+
+const ReasoningModal = ({ visible, reasoning, eventName, onClose }: {
+  visible: boolean;
+  reasoning: string;
+  eventName: string;
+  onClose: () => void;
+}) => {
+  if (!visible) return null;
+
+  const lines = reasoning.split('\n\n');
+  const headline = lines[0] || '';
+  const details = lines.slice(1);
+
+  const headlineColor =
+    headline.includes('Excellent') ? colors.success :
+    headline.includes('Good') ? colors.primarySaffron :
+    colors.warning;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={modalStyles.backdrop}>
+          <TouchableWithoutFeedback>
+            <View style={modalStyles.sheet}>
+              {/* Header */}
+              <LinearGradient colors={['#1A237E', '#283593']} style={modalStyles.header}>
+                <Text style={modalStyles.headerTitle}>🤖 AI Match Reasoning</Text>
+                <Text style={modalStyles.headerSub}>{eventName}</Text>
+                <TouchableOpacity onPress={onClose} style={modalStyles.closeBtn}>
+                  <Feather name="x" size={20} color="#fff" />
+                </TouchableOpacity>
+              </LinearGradient>
+
+              <ScrollView contentContainerStyle={modalStyles.body}>
+                {/* Overall score banner */}
+                <View style={[modalStyles.scoreBanner, { borderColor: headlineColor }]}>
+                  <Text style={[modalStyles.scoreBannerText, { color: headlineColor }]}>
+                    {headline}
+                  </Text>
+                </View>
+
+                {/* Breakdown rows */}
+                {details.map((line, i) => {
+                  const icon =
+                    line.startsWith('Skills:') ? '🎯' :
+                    line.startsWith('Availability:') ? '📅' :
+                    line.startsWith('Area:') ? '📍' :
+                    line.startsWith('Workload:') ? '⚡' : '•';
+                  const isPositive = line.includes('Fully') || line.includes('Perfect') || line.includes('No recent') || line.startsWith('Skills: You have');
+                  const isWarning = line.includes('Partial') || line.includes('Moderate') || line.includes('near');
+                  const borderColor = isPositive ? colors.success : isWarning ? colors.primarySaffron : colors.error;
+
+                  return (
+                    <View key={i} style={[modalStyles.reasonRow, { borderLeftColor: borderColor }]}>
+                      <Text style={modalStyles.reasonIcon}>{icon}</Text>
+                      <Text style={modalStyles.reasonText}>{line}</Text>
+                    </View>
+                  );
+                })}
+
+                <TouchableOpacity style={modalStyles.doneBtn} onPress={onClose}>
+                  <Text style={modalStyles.doneBtnText}>Got it</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+};
+
+// ── Main Screen ────────────────────────────────────────────────────────────────
+
+export const AssignmentScreen = ({ navigation }: any) => {
+  const [activeTab, setActiveTab] = useState<Tab>('Pending');
+  const [refreshing, setRefreshing] = useState(false);
+  const [reasoningMatch, setReasoningMatch] = useState<LiveMatch | null>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const {
+    assignments, loadAssignments, respondAssignment,
+    loadingAssignments, loadingAction, volunteerId,
+    acceptedAssignments, pastAssignments,
+    volunteerProfile, liveMatches, loadLiveMatches,
+    joinMatch,
+  } = useEventStore();
+
+  useEffect(() => {
+    loadAssignments(volunteerId);
+    loadLiveMatches(volunteerId);
+  }, [volunteerId]);
+
+  useEffect(() => {
+    fadeAnim.setValue(0);
+    Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  }, [activeTab]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      loadAssignments(volunteerId),
+      loadLiveMatches(volunteerId),
+    ]);
+    setRefreshing(false);
+  };
+
+  const handleJoin = async (match: any, status: 'accepted' | 'declined') => {
+    await Haptics.impactAsync(
+      status === 'accepted' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+    );
+    await joinMatch(
+      match.event_id, 
+      volunteerId, 
+      status, 
+      match.match_score, 
+      match.score_breakdown
+    );
+  };
+
+  const pendingAssignments = assignments.filter(a => a.status === 'pending');
+  const pendingCount = liveMatches.length + pendingAssignments.length;
+  const acceptedList = acceptedAssignments();
+  const pastList = pastAssignments();
+
+  return (
+    <View style={styles.container}>
+      <AppHeader
+        title="My Assignments"
+        showBack={true}
+        onBackPress={() => navigation.goBack()}
+      />
+
+      {/* Tab Bar */}
+      <View style={styles.tabBar}>
+        {TABS.map((tab) => {
+          const count = tab === 'Pending' ? pendingCount
+            : tab === 'Accepted' ? acceptedList.length
+            : pastList.length;
+          const isActive = activeTab === tab;
+          return (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.tab, isActive && styles.activeTab]}
+              onPress={() => setActiveTab(tab)}
+            >
+              <Text style={[styles.tabText, isActive && styles.activeTabText]}>{tab}</Text>
+              {count > 0 && (
+                <View style={[styles.badge, isActive ? styles.badgeActive : styles.badgeInactive]}>
+                  <Text style={[styles.badgeText, isActive && styles.badgeTextActive]}>{count}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {loadingAssignments && !refreshing ? (
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={colors.primaryGreen} />
+          <Text style={[typography.captionText, { marginTop: spacing.sm }]}>Loading assignments…</Text>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primaryGreen} />}
+        >
+          {activeTab === 'Pending' && (
+            <>
+              {pendingCount === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyIcon}>📡</Text>
+                  <Text style={styles.emptyTitle}>No Pending Missions</Text>
+                  <Text style={styles.emptySubtitle}>
+                    There are no live events matching your profile at the moment. 
+                    Update your skills or check back when a supervisor dispatches a new mission.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.sectionHeader}>
+                    <Feather name="zap" size={13} color={colors.primaryGreen} />
+                    <Text style={styles.sectionHeaderText}>
+                      {pendingCount} pending mission{pendingCount > 1 ? 's' : ''} found
+                    </Text>
+                  </View>
+                  
+                  {/* 1. Show Direct Assignments first */}
+                  {pendingAssignments.map((assign) => (
+                    <DirectAssignmentCard
+                      key={assign.id}
+                      assignment={assign}
+                      onAccept={() => respondAssignment(assign.id, 'accepted')}
+                      onDecline={() => respondAssignment(assign.id, 'declined')}
+                      loading={loadingAction}
+                    />
+                  ))}
+
+                  {/* 2. Show AI Suggested matches */}
+                  {liveMatches.map((match) => (
+                    <LiveMatchCard
+                      key={match.event_id}
+                      match={match}
+                      currentSkills={volunteerProfile?.skills ?? []}
+                      onAccept={() => handleJoin(match, 'accepted')}
+                      onDecline={() => handleJoin(match, 'declined')}
+                      loading={loadingAction}
+                      onViewReasoning={() => {
+                        Haptics.selectionAsync();
+                        setReasoningMatch(match);
+                      }}
+                    />
+                  ))}
+                </>
+              )}
+            </>
+          )}
+
+          {activeTab === 'Accepted' && (
+            <>
+              {acceptedList.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyIcon}>✅</Text>
+                  <Text style={styles.emptyTitle}>No Accepted Assignments</Text>
+                  <Text style={styles.emptySubtitle}>Missions you accept will appear here.</Text>
+                </View>
+              ) : acceptedList.map((a) => (
+                <HistoryCard key={a.id} assignment={a} />
+              ))}
+            </>
+          )}
+
+          {activeTab === 'Past' && (
+            <>
+              {pastList.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyIcon}>📁</Text>
+                  <Text style={styles.emptyTitle}>No Past Assignments</Text>
+                  <Text style={styles.emptySubtitle}>Your declined assignment history will appear here.</Text>
+                </View>
+              ) : pastList.map((a) => (
+                <HistoryCard key={a.id} assignment={a} />
+              ))}
+            </>
+          )}
+        </ScrollView>
+      )}
+
+      {/* AI Reasoning Modal */}
+      <ReasoningModal
+        visible={!!reasoningMatch}
+        reasoning={reasoningMatch?.ai_reasoning ?? ''}
+        eventName={reasoningMatch?.event_type ?? ''}
+        onClose={() => setReasoningMatch(null)}
+      />
+    </View>
+  );
+};
+
+// ── Direct Assignment Card (Push Model) ──────────────────────────────────────────
+
+const DirectAssignmentCard = ({ assignment, onAccept, onDecline, loading }: {
+  assignment: VolunteerAssignment;
+  onAccept: () => void;
+  onDecline: () => void;
+  loading: boolean;
+}) => {
+  return (
+    <View style={[globalStyles.card, styles.card, styles.directCard]}>
+      <View style={styles.cardHeader}>
+        <View style={{ flex: 1 }}>
+          <View style={styles.directBadge}>
+            <Text style={styles.directBadgeText}>🎯 DIRECT ASSIGNMENT</Text>
+          </View>
+          <Text style={styles.eventType}>{assignment.event_type}</Text>
+          <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {assignment.volunteer_area}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.directDescription}>
+        The supervisor has specifically selected you for this mission based on your skills and proximity.
+      </Text>
+
+      <View style={styles.detailRow}>
+        <Feather name="calendar" size={13} color={colors.textSecondary} />
+        <Text style={styles.detailText}>{assignment.event_date_start} → {assignment.event_date_end}</Text>
+      </View>
+
+      <View style={styles.actionRow}>
+        <TouchableOpacity style={styles.declineBtn} onPress={onDecline} disabled={loading}>
+          <Feather name="x" size={16} color={colors.error} />
+          <Text style={styles.declineBtnText}>Reject</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.acceptBtn} onPress={onAccept} disabled={loading}>
+          <LinearGradient colors={['#1A237E', '#283593']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.acceptGradient}>
+            {loading ? <ActivityIndicator size="small" color="#fff" /> : <><Feather name="check" size={16} color="#fff" /><Text style={styles.acceptBtnText}>Accept Mission</Text></>}
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+// ── Live Match Card (Pending Tab / Pull Model) ───────────────────────────────────
+
+const LiveMatchCard = ({ match, currentSkills, onViewReasoning, onAccept, onDecline, loading }: {
+  match: LiveMatch;
+  currentSkills: string[];
+  onViewReasoning: () => void;
+  onAccept: () => void;
+  onDecline: () => void;
+  loading: boolean;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start();
+  const onPressOut = () => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start();
+
+  const matchPct = Math.round(match.match_score * 100);
+  const barColor = matchPct >= 75 ? ['#2E7D32', '#66BB6A'] as const
+    : matchPct >= 55 ? ['#FBC02D', '#FFD54F'] as const
+    : ['#E65100', '#FF8C42'] as const;
+
+  const matchLabel = matchPct >= 75 ? 'Excellent Match' : matchPct >= 55 ? 'Good Match' : 'Partial Match';
+  const matchLabelColor = matchPct >= 75 ? colors.success : matchPct >= 55 ? colors.primarySaffron : colors.warning;
+
+  const fillPct = Math.min((match.accepted_count / Math.max(match.estimated_headcount, 1)) * 100, 100);
+  const spotsLeft = match.estimated_headcount - match.accepted_count;
+
+  return (
+    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }]}>
+      <View style={[globalStyles.card, styles.card]}>
+        {/* Category icon + Event name */}
+      <View style={styles.cardHeader}>
+        <Text style={styles.categoryIcon}>{CATEGORY_ICONS[match.category] || '📋'}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.eventType}>{match.event_type}</Text>
+          <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {match.area}</Text>
+        </View>
+        <View style={[styles.matchBadge, { backgroundColor: matchLabelColor + '20' }]}>
+          <Text style={[styles.matchBadgeText, { color: matchLabelColor }]}>{matchLabel}</Text>
+        </View>
+      </View>
+
+      {/* Match score bar */}
+      <View style={styles.matchRow}>
+        <Text style={styles.matchLabel}>AI Match Score</Text>
+        <Text style={[styles.matchValue, { color: matchLabelColor }]}>{matchPct}%</Text>
+      </View>
+      <View style={styles.matchBarBg}>
+        <LinearGradient colors={barColor} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+          style={[styles.matchBarFill, { width: `${matchPct}%` as any }]} />
+      </View>
+
+      {/* Details */}
+      <View style={styles.detailRow}>
+        <Feather name="calendar" size={13} color={colors.textSecondary} />
+        <Text style={styles.detailText}>{match.event_date_start} → {match.event_date_end}</Text>
+      </View>
+      <View style={styles.detailRow}>
+        <Feather name="users" size={13} color={colors.textSecondary} />
+        <Text style={styles.detailText}>
+          {match.accepted_count}/{match.estimated_headcount} volunteers joined • {spotsLeft > 0 ? `${spotsLeft} spots left` : 'Full'}
+        </Text>
+      </View>
+
+      {/* Fill rate bar */}
+      <View style={styles.fillBarBg}>
+        <View style={[styles.fillBarFill, { width: `${fillPct}%` as any }]} />
+      </View>
+
+      {/* Matched Skills */}
+      <View style={styles.skillsSection}>
+        <Text style={styles.skillsHeader}>Your Matching Skills</Text>
+        <View style={styles.skillsRow}>
+          {(Array.isArray(match.matched_skills) ? match.matched_skills : []).length > 0 ? (Array.isArray(match.matched_skills) ? match.matched_skills : []).map((s) => (
+            <View key={s} style={[styles.skillChip, styles.skillChipMatch]}>
+              <Text style={styles.skillChipTextMatch}>{SKILL_ICONS[s] || '✅'} {(s || '').replace('_', ' ')}</Text>
+            </View>
+          )) : (
+            <Text style={styles.noMatchText}>No direct skill match — check your profile</Text>
+          )}
+        </View>
+
+        {/* Other required skills */}
+        {(Array.isArray(match.event_required_skills) ? match.event_required_skills : []).filter(s => !(Array.isArray(currentSkills) ? currentSkills : []).includes(s)).length > 0 && (
+          <>
+            <Text style={[styles.skillsHeader, { marginTop: spacing.xs }]}>Other Requirements</Text>
+            <View style={styles.skillsRow}>
+              {(Array.isArray(match.event_required_skills) ? match.event_required_skills : []).filter(s => !(Array.isArray(currentSkills) ? currentSkills : []).includes(s)).map((s) => (
+                <View key={s} style={[styles.skillChip, styles.skillChipRequired]}>
+                  <Text style={styles.skillChipTextRequired}>{SKILL_ICONS[s] || '🔹'} {(s || '').replace('_', ' ')}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+      </View>
+
+      {/* Score breakdown */}
+      <View style={styles.breakdownRow}>
+        {Object.entries(match.score_breakdown || {}).map(([key, val]) => (
+          <View key={key} style={styles.breakdownItem}>
+            <Text style={styles.breakdownVal}>{val}%</Text>
+            <Text style={styles.breakdownLabel}>{key.replace('_pct', '').replace(/_/g, ' ')}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* AI Reasoning Button */}
+      <TouchableOpacity style={styles.reasoningBtn} onPress={onViewReasoning}>
+        <LinearGradient colors={['#1A237E', '#3949AB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+          style={styles.reasoningBtnGradient}>
+          <Feather name="cpu" size={14} color="#fff" />
+          <Text style={styles.reasoningBtnText}>View AI Reasoning</Text>
+          <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.7)" />
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Action buttons (Respond to Live Match) */}
+      <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={styles.declineBtn}
+          onPress={onDecline}
+          onPressIn={onPressIn}
+          onPressOut={onPressOut}
+          disabled={loading}
+        >
+          <Feather name="x" size={16} color={colors.error} />
+          <Text style={styles.declineBtnText}>Reject</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.acceptBtn}
+          onPress={onAccept}
+          onPressIn={onPressIn}
+          onPressOut={onPressOut}
+          disabled={loading}
+        >
+          <LinearGradient
+            colors={['#2E7D32', '#1B5E20']}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={styles.acceptGradient}
+          >
+            {loading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <><Feather name="check" size={16} color="#fff" /><Text style={styles.acceptBtnText}>Join Mission</Text></>
+            }
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+    </Animated.View>
+  );
+};
+
+// ── History Card (Accepted / Past) ─────────────────────────────────────────────
+
+const HistoryCard = ({ assignment }: { assignment: VolunteerAssignment }) => {
+  const isAccepted = assignment.status === 'accepted';
+  const color = isAccepted ? colors.success : colors.error;
+  const label = isAccepted ? '✅ Accepted' : '❌ Declined';
+
+  return (
+    <View style={[globalStyles.card, styles.card]}>
+      <View style={styles.cardHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.eventType}>{assignment.event_type}</Text>
+          <Text style={styles.eventArea}>{assignment.event_date_start} → {assignment.event_date_end}</Text>
+        </View>
+        <View style={[styles.matchBadge, { backgroundColor: color + '20' }]}>
+          <Text style={[styles.matchBadgeText, { color }]}>{label}</Text>
+        </View>
+      </View>
+      <View style={styles.detailRow}>
+        <Feather name="map-pin" size={13} color={colors.textSecondary} />
+        <Text style={styles.detailText}>{assignment.volunteer_area || 'Area TBD'}</Text>
+      </View>
+      <View style={styles.breakdownRow}>
+        {Object.entries(assignment.score_breakdown || {}).map(([key, val]) => (
+          <View key={key} style={styles.breakdownItem}>
+            <Text style={styles.breakdownVal}>{val}%</Text>
+            <Text style={styles.breakdownLabel}>{key.replace('_pct', '').replace(/_/g, ' ')}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// ── Styles ─────────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabBar: {
+    flexDirection: 'row', backgroundColor: colors.cardBackground,
+    marginHorizontal: spacing.md, marginTop: spacing.md,
+    borderRadius: 12, padding: spacing.xs, elevation: 2,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3,
+  },
+  tab: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: 8, flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  activeTab: { backgroundColor: colors.primaryGreen },
+  tabText: { ...typography.bodyText, color: colors.textSecondary, fontWeight: '500' as const },
+  activeTabText: { color: '#fff', fontWeight: '700' as const },
+  badge: { borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 },
+  badgeActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
+  badgeInactive: { backgroundColor: colors.primaryGreen + '20' },
+  badgeText: { fontSize: 10, color: colors.primaryGreen, fontWeight: '700' as const },
+  badgeTextActive: { color: '#fff' },
+  scrollContent: { padding: spacing.md, paddingBottom: 100 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm, paddingHorizontal: 4 },
+  sectionHeaderText: { fontSize: 12, color: colors.primaryGreen, fontWeight: '600' as const },
+  emptyState: { alignItems: 'center', paddingTop: 60, paddingHorizontal: spacing.xl },
+  emptyIcon: { fontSize: 52, marginBottom: spacing.md },
+  emptyTitle: { ...typography.headingSmall, marginBottom: spacing.sm, textAlign: 'center' },
+  emptySubtitle: { ...typography.bodyText, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  card: { marginBottom: spacing.md, borderRadius: 16 },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.sm },
+  categoryIcon: { fontSize: 28 },
+  eventType: { fontSize: 15, fontWeight: '700' as const, color: colors.textPrimary },
+  eventArea: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  matchBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  matchBadgeText: { fontSize: 11, fontWeight: '600' as const },
+  matchRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  matchLabel: { ...typography.captionText },
+  matchValue: { fontSize: 12, fontWeight: '700' as const },
+  matchBarBg: { height: 6, backgroundColor: '#E0E0E0', borderRadius: 3, marginBottom: spacing.sm, overflow: 'hidden' },
+  matchBarFill: { height: '100%', borderRadius: 3 },
+  fillBarBg: { height: 4, backgroundColor: '#E8F5E9', borderRadius: 2, marginBottom: spacing.sm, overflow: 'hidden' },
+  fillBarFill: { height: '100%', backgroundColor: colors.primaryGreen, borderRadius: 2 },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  detailText: { ...typography.captionText, flex: 1 },
+  skillsSection: { marginTop: spacing.sm, padding: spacing.sm, backgroundColor: '#F8F9FA', borderRadius: 12 },
+  skillsHeader: { fontSize: 9, fontWeight: '700' as const, color: colors.textSecondary, textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 },
+  skillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  skillChip: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1 },
+  skillChipMatch: { backgroundColor: colors.success + '15', borderColor: colors.success + '40' },
+  skillChipRequired: { backgroundColor: 'transparent', borderColor: '#E0E0E0', borderStyle: 'dashed' as const },
+  skillChipTextMatch: { fontSize: 10, color: colors.success, fontWeight: '600' as const },
+  skillChipTextRequired: { fontSize: 10, color: colors.textSecondary, fontWeight: '500' as const },
+  noMatchText: { fontSize: 10, color: colors.textSecondary, fontStyle: 'italic' as const },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
+  breakdownItem: { alignItems: 'center' },
+  breakdownVal: { fontSize: 13, fontWeight: '700' as const, color: colors.textPrimary },
+  breakdownLabel: { fontSize: 9, color: colors.textSecondary, textAlign: 'center', maxWidth: 60 },
+  reasoningBtn: { marginTop: spacing.sm, borderRadius: 10, overflow: 'hidden' },
+  reasoningBtnGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10 },
+  reasoningBtnText: { color: '#fff', fontWeight: '700' as const, fontSize: 13 },
+  actionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  declineBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.sm, borderRadius: 10, borderWidth: 1.5, borderColor: colors.error },
+  declineBtnText: { color: colors.error, fontWeight: '600' as const, fontSize: 14 },
+  acceptBtn: { flex: 2, borderRadius: 10, overflow: 'hidden' },
+  acceptGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.sm },
+  acceptBtnText: { color: '#fff', fontWeight: '700' as const, fontSize: 14 },
+  directCard: { borderLeftWidth: 6, borderLeftColor: '#1A237E', backgroundColor: '#F0F2FF' },
+  directBadge: { backgroundColor: '#1A237E', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginBottom: 4 },
+  directBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' as const },
+  directDescription: { fontSize: 12, color: colors.textPrimary, fontStyle: 'italic', marginBottom: spacing.sm, lineHeight: 18 },
+});
+
+const modalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', overflow: 'hidden' },
+  header: { padding: spacing.lg, paddingBottom: spacing.md, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700' as const },
+  headerSub: { color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 2 },
+  closeBtn: { position: 'absolute', top: spacing.md, right: spacing.md, padding: 6 },
+  body: { padding: spacing.lg, paddingBottom: 40 },
+  scoreBanner: { borderWidth: 2, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md, backgroundColor: '#FAFAFA' },
+  scoreBannerText: { fontSize: 16, fontWeight: '800' as const, textAlign: 'center' },
+  reasonRow: { borderLeftWidth: 3, paddingLeft: spacing.md, marginBottom: spacing.md, flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  reasonIcon: { fontSize: 16, marginTop: 1 },
+  reasonText: { flex: 1, fontSize: 13, color: colors.textPrimary, lineHeight: 20 },
+  doneBtn: { backgroundColor: colors.primaryGreen, borderRadius: 12, padding: 14, alignItems: 'center', marginTop: spacing.md },
+  doneBtnText: { color: '#fff', fontWeight: '700' as const, fontSize: 15 },
+});

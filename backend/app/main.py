@@ -2,7 +2,7 @@ from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from fastapi.staticfiles import StaticFiles # type: ignore
 import os
-from app.api.routes import scan_routes, report_routes # type: ignore
+from app.api.routes import scan_routes, report_routes, prediction_routes # type: ignore
 
 app = FastAPI(title="SevaSetu Backend")
 
@@ -24,6 +24,7 @@ app.add_middleware(
 # Include routers
 app.include_router(scan_routes.router, tags=["Scanner"])
 app.include_router(report_routes.router, tags=["Reports"])
+app.include_router(prediction_routes.router, tags=["Predictions & Assignments"])
 
 @app.get("/")
 async def health_check():

@@ -5,6 +5,18 @@ A modern platform connecting citizens with volunteers to solve community issues.
 ## 🚀 Quick Start
 
 ### 1. Backend Setup
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and Logs
+*.csv
+*.log
+backend/logs/
+/temp/
+/tmp/
+C:\Users\ZAHID\Desktop\SevaSetu\updated_data.csv
+
 The backend handles AI processing (Gemini), Firestore interactions, and reports.
 
 1.  **Navigate to backend**:
@@ -71,8 +83,28 @@ DOCUMENT_AI_PROCESSOR_ID=YOUR_PROCESSOR_ID
 
 ---
 
-## 🛠 Features
+## 🛠 New AI-Powered Features
+
+| Feature | Tech Stack | Description |
+| :--- | :--- | :--- |
+| **Crisis Forecasting** | Gemini 2.0 | Analyzes historical reports and seasonal trends to predict future community needs. |
+| **Push Dispatch Engine** | Firestore Batches | Automatically assigns the top-N qualified volunteers to a mission in a single atomic transaction. |
+| **Real-time Fill Rate** | React Native + Firestore | Supervisor dashboard showing live volunteer acceptance and mission readiness. |
+| **AI Match Reasoning** | Gemini AI | Volunteers see exactly why they were matched to a mission (skills, proximity, availability). |
+
+## 🧪 Developer Tools & Testing
+
+We have built specialized scripts to maintain and stress-test the AI engine:
+
+- **Seeding Users**: `python backend/scripts/seed_volunteers.py` (Creates 50+ diverse profiles).
+- **Seeding Reports**: `python backend/scripts/seed_reports.py` (Fills DB with 80+ historical crisis reports).
+- **Verify Dispatch**: `python backend/scripts/verify_assignment_capacity.py` (Tests matching for 40+ targets).
+- **Simulate Approvals**: `python backend/scripts/simulate_volunteer_actions.py` (Auto-approves missions for testing).
+
+---
+
+## 🛠 Core Features
 - **Animated Navigation**: Premium Reanimated-powered tab bar.
 - **Scan & Survey**: OCR + Gemini Vision for automatic form extraction with **Native Cropping**.
-- **Community Reports**: Real-time Firestore updates with Shimmering Skeleton Loaders.
-- **Native Experience**: Native bottom sheets and spring physics.
+- **Shimmering UI**: Skeletons and spring physics for a premium feel.
+- **Atomic Dispatch**: Reliable bulk writes for zero-latency mission confirmation.

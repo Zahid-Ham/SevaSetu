@@ -25,6 +25,7 @@ interface GradientButtonProps {
   textStyle?: TextStyle;
   colors?: string[];
   disabled?: boolean;
+  badge?: string;
 }
 
 export const GradientButton: React.FC<GradientButtonProps> = ({
@@ -35,6 +36,7 @@ export const GradientButton: React.FC<GradientButtonProps> = ({
   textStyle,
   colors: gradientColors = ['#FF8C42', '#FFB066'],
   disabled = false,
+  badge,
 }) => {
   const scale = useSharedValue(1);
 
@@ -82,6 +84,11 @@ export const GradientButton: React.FC<GradientButtonProps> = ({
               />
             )}
             <Text style={[styles.text, textStyle]}>{title}</Text>
+            {badge && (
+              <View style={styles.badgeContainer}>
+                <Text style={styles.badgeText}>{badge}</Text>
+              </View>
+            )}
           </View>
         </LinearGradient>
       </TouchableOpacity>
@@ -114,5 +121,20 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 16,
+  },
+  badgeContainer: {
+    backgroundColor: '#D32F2F',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.sm,
+    paddingHorizontal: 6,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

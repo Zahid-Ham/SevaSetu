@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import { useEventStore } from './useEventStore';
+
 type Role = 'CITIZEN' | 'VOLUNTEER' | 'SUPERVISOR' | null;
 
 interface AuthState {
@@ -15,5 +17,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   hasOnboarded: false,
   setRole: (role) => set({ role }),
   completeOnboarding: () => set({ hasOnboarded: true }),
-  logout: () => set({ role: null }),
+  logout: () => {
+    useEventStore.getState().resetStore();
+    set({ role: null });
+  },
 }));

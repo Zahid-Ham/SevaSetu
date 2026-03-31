@@ -2,11 +2,36 @@ import React from 'react';
 import { View, ScrollView, Text, StyleSheet } from 'react-native';
 import { GradientBackground, SectionTitle, MissionCard, StatCard, GradientButton, UserAvatar } from '../../components';
 import { colors, spacing, typography } from '../../theme';
+import { useNavigation } from '@react-navigation/native';
 import { MOCK_MISSIONS, MOCK_VOLUNTEER_STATS } from '../../services/mock';
+import { useEventStore } from '../../services/store/useEventStore';
 
 export const VolunteerHomeScreen = () => {
-  const urgentMissions = MOCK_MISSIONS.filter(m => m.urgency === 'High');
-  const userName = "Sagar Varma"; // Placeholder name
+  const navigation = useNavigation<any>();
+  const { 
+    unreadCount, 
+    pendingAssignments, 
+    volunteerProfile, 
+    volunteerId,
+    loadAssignments, 
+    loadPredictions, 
+    loadVolunteerProfile,
+    loadLiveMatches,
+    liveMatches,
+  } = useEventStore();
+
+  React.useEffect(() => {
+    if (volunteerId) {
+      loadAssignments(volunteerId);
+      loadVolunteerProfile(volunteerId);
+      loadPredictions();
+      loadLiveMatches(volunteerId);  // Real-time matching
+    }
+  }, [volunteerId]);
+
+  const urgentMissions = (Array.isArray(MOCK_MISSIONS) ? MOCK_MISSIONS : []).filter(m => m.urgency === 'High');
+  const pendingCount = (typeof pendingAssignments === 'function' ? pendingAssignments() : []).length;
+  const userName = volunteerProfile?.name || "Volunteer";
 
   return (
     <GradientBackground variant="dashboard" style={styles.container}>
@@ -25,6 +50,21 @@ export const VolunteerHomeScreen = () => {
       >
         <View style={styles.mainContent}>
           <SectionTitle title="Quick Actions" />
+          <View style={styles.quickActions}>
+            <GradientButton 
+              title="My Assignments" 
+              icon="calendar"
+              onPress={() => navigation.navigate('Assignments')} 
+              style={{ flex: 1, marginRight: spacing.sm }} 
+              badge={pendingCount > 0 ? pendingCount.toString() : undefined}
+            />
+            <GradientButton 
+              title="Availability" 
+              icon="clock"
+              onPress={() => navigation.navigate('Availability')} 
+              style={{ flex: 1, marginLeft: spacing.sm }} 
+            />
+          </View>
           <View style={styles.quickActions}>
             <GradientButton 
               title="Report Help" 
