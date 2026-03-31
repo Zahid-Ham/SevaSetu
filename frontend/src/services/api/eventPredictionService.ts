@@ -130,6 +130,8 @@ export interface ChatMessage {
   type: 'text' | 'event_attachment';
   timestamp: string;
   metadata?: any;
+  deleted?: boolean;
+  deleted_by?: string[];
 }
 
 export interface ChatRoom {
@@ -141,8 +143,10 @@ export interface ChatRoom {
   event_name?: string;
   event_id?: string;
   last_message: string;
+  last_sender_id?: string;
   updated_at: string;
   participants: string[];
+  unread_count?: number;
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -368,9 +372,10 @@ export async function sendMessage(payload: {
   });
 }
 
-export async function fetchMessages(roomId: string): Promise<ChatMessage[]> {
+export async function fetchMessages(roomId: string, userId?: string): Promise<ChatMessage[]> {
   try {
-    const data = await apiFetch<any>(`/chat/messages/${roomId}`, undefined);
+    const queryParam = userId ? `?user_id=${userId}` : '';
+    const data = await apiFetch<any>(`/chat/messages/${roomId}${queryParam}`, undefined);
     return Array.isArray(data.messages) ? data.messages : [];
   } catch (e) {
     console.warn('[eventPredictionService] fetchMessages failed:', e);
@@ -394,6 +399,25 @@ export async function summarizeChat(messages: any[], contextEvent?: string): Pro
     body: JSON.stringify({ messages, context_event: contextEvent }),
   }, { summary: "Summary unavailable." });
   return data.summary;
+}
+
+export async function markRoomRead(roomId: string, userId: string): Promise<void> {
+  await apiFetch(`/chat/read/${roomId}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'POST',
+  }, {});
+}
+
+export async function deleteMessage(
+  roomId: string,
+  messageId: string,
+  mode: 'for_me' | 'for_everyone',
+  userId: string
+): Promise<void> {
+  await apiFetch(
+    `/chat/messages/${roomId}/${messageId}?mode=${mode}&user_id=${encodeURIComponent(userId)}`,
+    { method: 'DELETE' },
+    {}
+  );
 }
 
 // ── Mock Data (Demo Fallback) ──────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { useChatStore } from '../../services/store/useChatStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
@@ -21,26 +21,56 @@ const ChatRoomItem = ({ room, currentUserId, onPress }: { room: any; currentUser
     ? (room.volunteer_name && room.volunteer_name !== 'Me' ? room.volunteer_name : 'Volunteer') 
     : (room.supervisor_name && room.supervisor_name !== 'Me' ? room.supervisor_name : 'Supervisor');
   
+  const hasUnread = (room.unread_count || 0) > 0;
+
+  const formatTime = (isoString: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
   return (
-    <TouchableOpacity style={styles.roomItem} onPress={onPress}>
-      <UserAvatar name={otherName} size={50} />
+    <TouchableOpacity 
+      style={[styles.roomItem, hasUnread && styles.unreadRoomItem]} 
+      onPress={onPress}
+    >
+      <View>
+        <UserAvatar name={otherName} size={50} />
+        {hasUnread && (
+          <View style={styles.unreadBadgeMini}>
+            <Text style={styles.unreadBadgeTextMini}>{room.unread_count}</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.roomInfo}>
         <View style={styles.roomHeader}>
-          <Text style={styles.roomName}>{otherName}</Text>
-          <Text style={styles.roomTime}>
-            {room.updated_at ? new Date(room.updated_at).toLocaleDateString() : ''}
+          <Text style={[styles.roomName, hasUnread && styles.unreadText]}>{otherName}</Text>
+          <Text style={[styles.roomTime, hasUnread && styles.unreadTime]}>
+            {formatTime(room.updated_at)}
           </Text>
         </View>
-        <Text style={styles.lastMessage} numberOfLines={1}>
-          {room.last_message || 'No messages yet'}
-        </Text>
+        <View style={styles.messageRow}>
+          <Text 
+            style={[styles.lastMessage, hasUnread && styles.unreadLastMessage]} 
+            numberOfLines={1}
+          >
+            {room.last_message || 'No messages yet'}
+          </Text>
+          {hasUnread && <View style={styles.unreadDot} />}
+        </View>
         {room.event_id && (
           <View style={styles.eventBadge}>
             <Text style={styles.eventBadgeText}>Mission context active</Text>
           </View>
         )}
       </View>
-      <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+      <Feather name="chevron-right" size={20} color={hasUnread ? colors.primaryGreen : colors.textSecondary} />
     </TouchableOpacity>
   );
 };
@@ -52,11 +82,13 @@ export const ChatListScreen = () => {
   
   const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : currentVolunteerId;
 
-  const { rooms, loadRooms, loadingRooms } = useChatStore();
+  const { rooms, loadRooms, loadingRooms, markRoomRead } = useChatStore();
 
-  useEffect(() => {
-    loadRooms(currentUserId);
-  }, [currentUserId]);
+  useFocusEffect(
+    useCallback(() => {
+      loadRooms(currentUserId);
+    }, [currentUserId])
+  );
 
   return (
     <View style={styles.container}>
@@ -79,6 +111,9 @@ export const ChatListScreen = () => {
                   ? (item.volunteer_name && item.volunteer_name !== 'Me' ? item.volunteer_name : 'Volunteer') 
                   : (item.supervisor_name && item.supervisor_name !== 'Me' ? item.supervisor_name : 'Supervisor');
                 
+                // Mark as read immediately
+                markRoomRead(item.id, currentUserId);
+
                 navigation.navigate('Chat', {
                   volunteer_id: item.volunteer_id,
                   supervisor_id: item.supervisor_id,
@@ -144,6 +179,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     marginBottom: 4,
+  },
+  unreadRoomItem: {
+    backgroundColor: colors.primaryGreen + '05',
+  },
+  unreadText: {
+    fontWeight: '800',
+    color: '#000',
+  },
+  unreadLastMessage: {
+    fontWeight: '700',
+    color: colors.primaryGreen,
+  },
+  unreadTime: {
+    color: colors.primaryGreen,
+    fontWeight: '700',
+  },
+  unreadBadgeMini: {
+    position: 'absolute',
+    right: -2,
+    top: -2,
+    backgroundColor: colors.primaryGreen,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  unreadBadgeTextMini: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primaryGreen,
+    marginLeft: spacing.xs,
   },
   eventBadge: {
     alignSelf: 'flex-start',

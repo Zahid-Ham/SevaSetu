@@ -2,10 +2,12 @@ import React from 'react';
 import { View, ScrollView, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { GradientBackground, SectionTitle, MissionCard, StatCard, GradientButton, UserAvatar } from '../../components';
 import { colors, spacing, typography } from '../../theme';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { MOCK_MISSIONS, MOCK_VOLUNTEER_STATS } from '../../services/mock';
 import { useEventStore } from '../../services/store/useEventStore';
+import { useChatStore } from '../../services/store/useChatStore';
+import { useAuthStore } from '../../services/store/useAuthStore';
 
 export const VolunteerHomeScreen = () => {
   const navigation = useNavigation<any>();
@@ -21,14 +23,24 @@ export const VolunteerHomeScreen = () => {
     liveMatches,
   } = useEventStore();
 
-  React.useEffect(() => {
-    if (volunteerId) {
-      loadAssignments(volunteerId);
-      loadVolunteerProfile(volunteerId);
-      loadPredictions();
-      loadLiveMatches(volunteerId);  // Real-time matching
-    }
-  }, [volunteerId]);
+  const { role } = useAuthStore();
+  const { rooms, loadRooms } = useChatStore();
+
+  const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : volunteerId;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (currentUserId) {
+        loadAssignments(volunteerId);
+        loadVolunteerProfile(volunteerId);
+        loadPredictions();
+        loadLiveMatches(volunteerId);
+        loadRooms(currentUserId);
+      }
+    }, [currentUserId])
+  );
+
+  const totalUnread = rooms.reduce((sum, r) => sum + (r.unread_count || 0), 0);
 
   const urgentMissions = (Array.isArray(MOCK_MISSIONS) ? MOCK_MISSIONS : []).filter(m => m.urgency === 'High');
   const pendingCount = (typeof pendingAssignments === 'function' ? pendingAssignments() : []).length;
@@ -47,7 +59,11 @@ export const VolunteerHomeScreen = () => {
             style={styles.chatHeaderBtn}
           >
             <Feather name="message-circle" size={24} color={colors.primaryGreen} />
-            <View style={styles.chatBadge} />
+            {totalUnread > 0 && (
+              <View style={[styles.chatBadge, totalUnread > 9 && styles.chatBadgeWide]}>
+                <Text style={styles.chatBadgeText}>{totalUnread > 99 ? '99+' : totalUnread}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           <UserAvatar name={userName} size={48} />
         </View>
@@ -197,13 +213,25 @@ const styles = StyleSheet.create({
   },
   chatBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#E53935',
-    borderWidth: 2,
+    top: 0,
+    right: 0,
+    backgroundColor: colors.error,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
     borderColor: '#fff',
+    paddingHorizontal: 2,
+  },
+  chatBadgeWide: {
+    paddingHorizontal: 4,
+    borderRadius: 9,
+  },
+  chatBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
   },
 });

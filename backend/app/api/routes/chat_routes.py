@@ -78,6 +78,7 @@ class SendMessageRequest(BaseModel):
     supervisor_name: Optional[str] = None
     event_name: Optional[str] = None
     type: str = "text" # text | event_attachment
+    metadata: Optional[dict] = None
 
 def get_room_id(v_id: str, s_id: str, e_id: Optional[str]) -> str:
     # Deterministic room ID based on participants and event context
@@ -92,6 +93,7 @@ async def send_message(req: SendMessageRequest):
     """
     Saves a message to Firestore under a specific room.
     Ensures the room entry exists with metadata.
+    On send, auto-marks the room as read for the sender.
     """
     room_id = get_room_id(req.volunteer_id, req.supervisor_id, req.event_id)
     
@@ -99,8 +101,12 @@ async def send_message(req: SendMessageRequest):
         "sender_id": req.sender_id,
         "text": req.text,
         "type": req.type,
-        "timestamp": firestore.SERVER_TIMESTAMP
+        "timestamp": firestore.SERVER_TIMESTAMP,
+        "deleted": False,
+        "deleted_by": [],
     }
+    if req.metadata:
+        msg_data["metadata"] = req.metadata
 
     # 1. Update/Create Room Metadata
     room_ref = db.collection("chats").document(room_id)
@@ -109,8 +115,11 @@ async def send_message(req: SendMessageRequest):
         "supervisor_id": req.supervisor_id,
         "event_id": req.event_id,
         "last_message": req.text,
+        "last_sender_id": req.sender_id,
         "updated_at": firestore.SERVER_TIMESTAMP,
-        "participants": [req.volunteer_id, req.supervisor_id]
+        "participants": [req.volunteer_id, req.supervisor_id],
+        # Auto-mark sender as having read up to now
+        f"last_read_by.{req.sender_id}": firestore.SERVER_TIMESTAMP,
     }
     
     if req.volunteer_name:
@@ -127,10 +136,61 @@ async def send_message(req: SendMessageRequest):
 
     return {"success": True, "room_id": room_id}
 
+@router.post("/chat/read/{room_id}")
+async def mark_room_read(room_id: str, user_id: str):
+    """
+    Marks all messages in a room as read for the given user.
+    Updates last_read_by[user_id] to now.
+    """
+    try:
+        room_ref = db.collection("chats").document(room_id)
+        # Using .update() with a dot-notated key correctly updates 
+        # a nested field without overwriting the entire map.
+        room_ref.update({
+            f"last_read_by.{user_id}": firestore.SERVER_TIMESTAMP
+        })
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/chat/messages/{room_id}/{message_id}")
+async def delete_message(room_id: str, message_id: str, mode: str = "for_me", user_id: str = ""):
+    """
+    Deletes a message.
+    mode=for_everyone: Sets deleted=True, clears text (replaces with placeholder). Visible to all.
+    mode=for_me: Adds user_id to deleted_by list. Message hidden only for that user.
+    """
+    try:
+        msg_ref = db.collection("chats").document(room_id).collection("messages").document(message_id)
+        msg_snap = msg_ref.get()
+        
+        if not msg_snap.exists:
+            raise HTTPException(status_code=404, detail="Message not found.")
+
+        if mode == "for_everyone":
+            msg_ref.update({
+                "deleted": True,
+                "text": "This message was deleted",
+                "deleted_by": [],  # Clear individual deletions since it's now gone for all
+            })
+        elif mode == "for_me" and user_id:
+            msg_ref.update({
+                "deleted_by": firestore.ArrayUnion([user_id])
+            })
+        else:
+            raise HTTPException(status_code=400, detail="Invalid delete mode or missing user_id.")
+        
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/chat/messages/{room_id}")
-async def get_messages(room_id: str, limit: int = 50):
+async def get_messages(room_id: str, limit: int = 50, user_id: str = ""):
     """
     Fetches latest messages for a given room.
+    Filters out messages deleted for the requesting user.
     """
     try:
         messages_ref = db.collection("chats").document(room_id).collection("messages")
@@ -142,6 +202,12 @@ async def get_messages(room_id: str, limit: int = 50):
             d["id"] = doc.id
             if d.get("timestamp"):
                 d["timestamp"] = d["timestamp"].isoformat()
+            
+            # Filter out messages deleted for this specific user
+            deleted_by = d.get("deleted_by", [])
+            if user_id and user_id in deleted_by:
+                continue  # Skip this message for this user
+                
             msgs.append(d)
             
         # Reverse to show chronological order in UI
@@ -153,17 +219,40 @@ async def get_messages(room_id: str, limit: int = 50):
 @router.get("/chat/rooms/{user_id}")
 async def get_user_rooms(user_id: str):
     """
-    Lists all chat rooms for a specific user (supervisor or volunteer).
+    Lists all chat rooms for a specific user, sorted newest first.
+    Computes unread_count by counting messages newer than last_read_by[user_id].
     """
     try:
-        rooms = db.collection("chats").where("participants", "array_contains", user_id).stream()
+        rooms_query = db.collection("chats").where("participants", "array_contains", user_id).stream()
         result = []
-        for r in rooms:
+        for r in rooms_query:
             d = r.to_dict()
             d["id"] = r.id
+            # ── Optimized Unread Check ──
+            # Instead of querying all messages (expensive), we use room metadata.
+            # If the last message was from someone else AND was updated after we last read it.
+            last_read_by = d.get("last_read_by", {})
+            last_read_ts = last_read_by.get(user_id)
+            updated_at_ts = d.get("updated_at") # This is still a datetime object here
+            last_sender_id = d.get("last_sender_id")
+            
+            unread_count = 0
+            if last_sender_id != user_id and updated_at_ts:
+                # If we've never read it, or it was updated after our last read
+                # Compare datetimes BEFORE converting them to strings/ISO format.
+                if not last_read_ts or updated_at_ts > last_read_ts:
+                    unread_count = 1
+            
+            # Now safe to convert to string for JSON serialization
             if d.get("updated_at"):
                 d["updated_at"] = d["updated_at"].isoformat()
+
+            d["unread_count"] = unread_count
             result.append(d)
+        
+        # Sort by updated_at descending (newest first)
+        result.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        
         return {"success": True, "rooms": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

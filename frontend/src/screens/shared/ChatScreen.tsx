@@ -11,6 +11,8 @@ import {
   ActivityIndicator, 
   Modal,
   ScrollView,
+  Alert,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -91,37 +93,63 @@ const ContextCard = ({ message, isSelf, role }: { message: any; isSelf: boolean;
   );
 };
 
-const MessageBubble = ({ message, isSelf, role }: { message: any; isSelf: boolean; role: string }) => {
+const MessageBubble = ({ 
+  message, 
+  isSelf, 
+  role, 
+  onLongPress 
+}: { 
+  message: any; 
+  isSelf: boolean; 
+  role: string;
+  onLongPress?: (msg: any) => void;
+}) => {
   const isAttachment = message.type === 'event_attachment';
+  const isDeleted = message.deleted;
 
   if (isAttachment) {
     return (
-      <View style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper, { maxWidth: '90%' }]}>
+      <TouchableOpacity 
+        activeOpacity={0.8}
+        onLongPress={() => onLongPress?.(message)}
+        style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper, { maxWidth: '90%' }]}
+      >
         <ContextCard message={message} isSelf={isSelf} role={role} />
         <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 
   return (
     <View style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}>
-      <View style={[
-        styles.bubble,
-        isSelf ? styles.selfBubble : styles.otherBubble,
-      ]}>
-        {isSelf ? (
+      <TouchableOpacity 
+        activeOpacity={0.8}
+        onLongPress={() => onLongPress?.(message)}
+        style={[
+          styles.bubble,
+          isSelf ? styles.selfBubble : styles.otherBubble,
+          isDeleted && { backgroundColor: isSelf ? '#E0E0E0' : '#F5F5F5', borderWidth: 1, borderColor: '#DDD' }
+        ]}
+      >
+        {isSelf && !isDeleted ? (
           <LinearGradient colors={['#1B5E20', '#2E7D32']} style={StyleSheet.absoluteFill} />
         ) : null}
         
-        <Text style={[styles.messageText, { color: isSelf ? '#fff' : colors.textPrimary }]}>
-          {message.text}
+        <Text style={[
+          styles.messageText, 
+          { color: isDeleted ? colors.textSecondary : (isSelf ? '#fff' : colors.textPrimary) },
+          isDeleted && { fontStyle: 'italic', fontSize: 13 }
+        ]}>
+          {isDeleted ? 'This message was deleted' : message.text}
         </Text>
-        <Text style={[styles.timestamp, { color: isSelf ? '#A5D6A7' : colors.textSecondary }]}>
-          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </Text>
-      </View>
+        <View style={styles.bubbleFooter}>
+          <Text style={[styles.timestamp, { color: isDeleted ? colors.textSecondary : (isSelf ? '#A5D6A7' : colors.textSecondary) }]}>
+            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </View>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -150,30 +178,58 @@ export const ChatScreen = () => {
   const { 
     messages, 
     loadMessages, 
+    loadingMessages,
     sendMessage, 
     startPolling, 
     resetChat,
     generateSummary,
     summary,
-    loadingSummary
+    loadingSummary,
+    markRoomRead,
+    deleteMessage
   } = useChatStore();
 
   const [inputText, setInputText] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
-  
-  const roomId = `${[volunteer_id, supervisor_id].sort().join('_')}${event_id ? `_${event_id}` : ''}`;
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
-    loadMessages(roomId);
-    const cleanup = startPolling(roomId);
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+  
+  // ⚠️ CRITICAL: Sort participant IDs to match the backend's get_room_id() which uses sorted()
+  const sortedParticipants = [volunteer_id, supervisor_id].filter(Boolean).sort();
+  const roomId = event_id
+    ? `${sortedParticipants.join('_')}_${event_id}`
+    : sortedParticipants.join('_');
+
+  useEffect(() => {
+    if (!roomId || !currentUserId) return;
+    
+    loadMessages(roomId, currentUserId);
+    // Mark as read in background — don't await, don't block message load
+    markRoomRead(roomId, currentUserId).catch(() => {});
+
+    const cleanup = startPolling(roomId, currentUserId);
     return () => {
       cleanup();
-      resetChat();
+      // Don't call resetChat() here — it wipes messages causing blank screen on re-mount
     };
-  }, [roomId]);
+  }, [roomId, currentUserId]);
 
   const handleSend = () => {
     if (!inputText.trim()) return;
@@ -215,12 +271,43 @@ export const ChatScreen = () => {
     });
   };
 
+  const handleLongPress = (msg: any) => {
+    if (msg.deleted) return;
+    
+    const isMyMsg = msg.sender_id === currentUserId;
+    
+    const options = [
+      {
+        text: 'Delete for Me',
+        onPress: () => deleteMessage(roomId, msg.id, 'for_me', currentUserId),
+        style: 'destructive' as 'destructive'
+      }
+    ];
+
+    if (isMyMsg) {
+      options.unshift({
+        text: 'Delete for Everyone',
+        onPress: () => deleteMessage(roomId, msg.id, 'for_everyone', currentUserId),
+        style: 'destructive' as 'destructive'
+      });
+    }
+
+    Alert.alert(
+      'Delete Message?',
+      'Are you sure you want to delete this message?',
+      [
+        ...options,
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
+
   const showContextSuggestion = event_id && messages.length < 5 && !messages.some(m => m.type === 'event_attachment');
 
   return (
     <KeyboardAvoidingView 
       style={styles.container} 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <View style={styles.header}>
@@ -262,17 +349,36 @@ export const ChatScreen = () => {
         </View>
       </View>
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <MessageBubble message={item} isSelf={item.sender_id === currentUserId} role={role!} />
-        )}
-        contentContainerStyle={styles.messageList}
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-      />
+      {loadingMessages ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primaryGreen} />
+          <Text style={styles.loadingText}>Loading messages...</Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <MessageBubble 
+              message={item} 
+              isSelf={item.sender_id === currentUserId} 
+              role={role!} 
+              onLongPress={handleLongPress}
+            />
+          )}
+          contentContainerStyle={styles.messageList}
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
+          ListEmptyComponent={
+            <View style={styles.emptyChat}>
+              <Feather name="message-circle" size={48} color={colors.textSecondary + '50'} />
+              <Text style={styles.emptyChatText}>No messages yet</Text>
+              <Text style={styles.emptyChatSub}>Say hello to start the conversation!</Text>
+            </View>
+          }
+        />
+      )}
 
       {showContextSuggestion && (
         <TouchableOpacity style={styles.suggestionBar} onPress={handleAttachContext}>
@@ -284,7 +390,10 @@ export const ChatScreen = () => {
         </TouchableOpacity>
       )}
 
-      <View style={[styles.inputArea, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+      <View style={[
+        styles.inputArea, 
+        { paddingBottom: isKeyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm) }
+      ]}>
         <View style={styles.inputContainer}>
           {isSupervisor && (
             <TouchableOpacity style={styles.attachBtn} onPress={handleAttachContext}>
@@ -503,12 +612,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   messageText: {
+    ...typography.bodyText,
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 20,
+  },
+  bubbleFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 2,
   },
   timestamp: {
-    fontSize: 10,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 2,
   },
   richContextCard: {
     width: 300,
@@ -684,11 +800,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   loadingContainer: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 60,
+    gap: 12,
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: 8,
     color: colors.textSecondary,
     fontSize: 14,
   },
@@ -806,5 +925,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '800',
     fontSize: 15,
+  },
+  emptyChat: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 100,
+    gap: 8,
+  },
+  emptyChatText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  emptyChatSub: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    opacity: 0.7,
   },
 });

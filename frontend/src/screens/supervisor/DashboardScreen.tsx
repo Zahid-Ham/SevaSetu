@@ -7,7 +7,9 @@ import { useEventStore } from '../../services/store/useEventStore';
 import { PredictedEvent, MOCK_PREDICTIONS } from '../../services/api/eventPredictionService';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useChatStore } from '../../services/store/useChatStore';
+import { useAuthStore } from '../../services/store/useAuthStore';
 
 const TIER_COLORS: Record<string, { dot: string; gradient: readonly [string, string] }> = {
   high:   { dot: '#66BB6A', gradient: ['#1B5E20', '#2E7D32'] as const },
@@ -81,13 +83,23 @@ const previewStyles = StyleSheet.create({
 export const DashboardScreen = () => {
   const navigation = useNavigation<any>();
   const [loading, setLoading] = useState(true);
+  const { role } = useAuthStore();
   const { predictions, loadPredictions } = useEventStore();
+  const { rooms, loadRooms } = useChatStore();
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 2000);
-    loadPredictions();
-    return () => clearTimeout(timer);
-  }, []);
+  const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : 'vol_logistics_1';
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setLoading(true);
+      loadPredictions();
+      loadRooms(currentUserId);
+      const timer = setTimeout(() => setLoading(false), 1500);
+      return () => clearTimeout(timer);
+    }, [currentUserId])
+  );
+
+  const totalUnread = rooms.reduce((sum, r) => sum + (r.unread_count || 0), 0);
 
   const displayPredictions = predictions.length > 0 ? predictions : MOCK_PREDICTIONS;
   const activePredictions = displayPredictions.filter((p) => p.status !== 'dismissed');
@@ -105,7 +117,11 @@ export const DashboardScreen = () => {
             style={styles.chatHeaderBtn}
           >
             <Feather name="message-circle" size={24} color={colors.primaryGreen} />
-            <View style={styles.chatBadge} />
+            {totalUnread > 0 && (
+              <View style={[styles.chatBadge, totalUnread > 9 && styles.chatBadgeWide]}>
+                <Text style={styles.chatBadgeText}>{totalUnread > 99 ? '99+' : totalUnread}</Text>
+              </View>
+            )}
           </TouchableOpacity>
           <UserAvatar name="Deepak Chawla" size={48} />
         </View>
@@ -288,13 +304,25 @@ const styles = StyleSheet.create({
   },
   chatBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    top: 0,
+    right: 0,
     backgroundColor: colors.error,
-    borderWidth: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
     borderColor: '#fff',
+    paddingHorizontal: 2,
+  },
+  chatBadgeWide: {
+    paddingHorizontal: 4,
+    borderRadius: 9,
+  },
+  chatBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
   },
 });

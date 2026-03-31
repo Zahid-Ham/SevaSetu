@@ -15,7 +15,7 @@ interface ChatState {
 
   // Actions
   loadRooms: (userId: string) => Promise<void>;
-  loadMessages: (roomId: string) => Promise<void>;
+  loadMessages: (roomId: string, userId?: string) => Promise<void>;
   sendMessage: (payload: {
     volunteer_id: string;
     supervisor_id: string;
@@ -30,7 +30,11 @@ interface ChatState {
   }) => Promise<void>;
   
   // Real-time Simulation (Polling)
-  startPolling: (roomId: string) => () => void; // Returns cleanup function
+  startPolling: (roomId: string, userId?: string) => () => void; // Returns cleanup function
+  
+  // Message Management
+  markRoomRead: (roomId: string, userId: string) => Promise<void>;
+  deleteMessage: (roomId: string, messageId: string, mode: 'for_me' | 'for_everyone', userId: string) => Promise<void>;
   
   // AI Integration
   generateSummary: (roomId: string, eventName?: string) => Promise<void>;
@@ -58,10 +62,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  loadMessages: async (roomId: string) => {
+  loadMessages: async (roomId: string, userId?: string) => {
     set({ loadingMessages: true, activeRoomId: roomId });
     try {
-      const messages = await api.fetchMessages(roomId);
+      const messages = await api.fetchMessages(roomId, userId);
       set({ messages });
     } finally {
       set({ loadingMessages: false });
@@ -80,13 +84,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  startPolling: (roomId: string) => {
+  startPolling: (roomId: string, userId?: string) => {
     console.log(`[useChatStore] Starting polling for room: ${roomId}`);
     const interval = setInterval(async () => {
       // Only fetch if this is still the active room
       if (get().activeRoomId === roomId) {
         try {
-          const msgs = await api.fetchMessages(roomId);
+          const msgs = await api.fetchMessages(roomId, userId);
           // Only update if count changed (basic diffing)
           if (msgs.length !== get().messages.length) {
             set({ messages: msgs });
@@ -111,6 +115,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ summary: summaryText });
     } finally {
       set({ loadingSummary: false });
+    }
+  },
+
+  markRoomRead: async (roomId: string, userId: string) => {
+    try {
+      await api.markRoomRead(roomId, userId);
+      // Immediately clear unread count in locally cached rooms
+      set((state) => ({
+        rooms: state.rooms.map((r) => 
+          r.id === roomId ? { ...r, unread_count: 0 } : r
+        )
+      }));
+    } catch (e) {
+      console.warn('[useChatStore] markRoomRead error:', e);
+    }
+  },
+
+  deleteMessage: async (roomId: string, messageId: string, mode: 'for_me' | 'for_everyone', userId: string) => {
+    try {
+      await api.deleteMessage(roomId, messageId, mode, userId);
+      // Immediately update local messages state
+      if (mode === 'for_everyone') {
+        set((state) => ({
+          messages: state.messages.map((m) => 
+            m.id === messageId ? { ...m, deleted: true, text: 'This message was deleted' } : m
+          )
+        }));
+      } else {
+        // for_me: simply remove from local stream for this user
+        set((state) => ({
+          messages: state.messages.filter((m) => m.id !== messageId)
+        }));
+      }
+    } catch (e) {
+      console.error('[useChatStore] deleteMessage error:', e);
     }
   },
 
