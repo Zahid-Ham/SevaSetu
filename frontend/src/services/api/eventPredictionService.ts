@@ -67,6 +67,7 @@ export interface VolunteerAssignment {
   };
   event_id: string;
   event_type: string;
+  event_description?: string;
   event_date_start: string;
   event_date_end: string;
   event_required_skills?: string[];  // Added
@@ -120,6 +121,28 @@ export interface LiveMatch {
   };
   ai_reasoning: string;
   is_live_match: true;
+}
+
+export interface ChatMessage {
+  id: string;
+  sender_id: string;
+  text: string;
+  type: 'text' | 'event_attachment';
+  timestamp: string;
+  metadata?: any;
+}
+
+export interface ChatRoom {
+  id: string;
+  volunteer_id: string;
+  supervisor_id: string;
+  volunteer_name?: string;
+  supervisor_name?: string;
+  event_name?: string;
+  event_id?: string;
+  last_message: string;
+  updated_at: string;
+  participants: string[];
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -323,6 +346,54 @@ export async function submitFeedback(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   }, {});
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────
+
+export async function sendMessage(payload: {
+  volunteer_id: string;
+  supervisor_id: string;
+  event_id?: string;
+  sender_id: string;
+  text: string;
+  volunteer_name?: string;
+  supervisor_name?: string;
+  event_name?: string;
+  type?: string;
+  metadata?: any;
+}): Promise<{ room_id: string }> {
+  return await apiFetch('/chat/send', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchMessages(roomId: string): Promise<ChatMessage[]> {
+  try {
+    const data = await apiFetch<any>(`/chat/messages/${roomId}`, undefined);
+    return Array.isArray(data.messages) ? data.messages : [];
+  } catch (e) {
+    console.warn('[eventPredictionService] fetchMessages failed:', e);
+    return [];
+  }
+}
+
+export async function fetchUserRooms(userId: string): Promise<ChatRoom[]> {
+  try {
+    const data = await apiFetch<any>(`/chat/rooms/${userId}`, undefined);
+    return Array.isArray(data.rooms) ? data.rooms : [];
+  } catch (e) {
+    console.warn('[eventPredictionService] fetchUserRooms failed:', e);
+    return [];
+  }
+}
+
+export async function summarizeChat(messages: any[], contextEvent?: string): Promise<string> {
+  const data = await apiFetch<any>('/chat/summarize', {
+    method: 'POST',
+    body: JSON.stringify({ messages, context_event: contextEvent }),
+  }, { summary: "Summary unavailable." });
+  return data.summary;
 }
 
 // ── Mock Data (Demo Fallback) ──────────────────────────────────────────────────

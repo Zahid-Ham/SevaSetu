@@ -99,7 +99,16 @@ export const DashboardScreen = () => {
           <Text style={styles.greetingText}>Good Morning,</Text>
           <Text style={typography.headingMedium}>Deepak Chawla</Text>
         </View>
-        <UserAvatar name="Deepak Chawla" size={48} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('ChatList')}
+            style={styles.chatHeaderBtn}
+          >
+            <Feather name="message-circle" size={24} color={colors.primaryGreen} />
+            <View style={styles.chatBadge} />
+          </TouchableOpacity>
+          <UserAvatar name="Deepak Chawla" size={48} />
+        </View>
       </View>
 
       <ScrollView
@@ -272,5 +281,20 @@ const styles = StyleSheet.create({
     color: colors.primaryGreen,
     fontWeight: '700',
     fontSize: 14,
+  },
+  chatHeaderBtn: {
+    padding: 8,
+    position: 'relative',
+  },
+  chatBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.error,
+    borderWidth: 2,
+    borderColor: '#fff',
   },
 });

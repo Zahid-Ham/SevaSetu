@@ -15,12 +15,13 @@ export const UserAvatar: React.FC<UserAvatarProps> = ({
   size = 48,
   style,
 }) => {
-  const getInitials = (name: string) => {
-    const parts = name.split(' ');
-    if (parts.length >= 2) {
+  const getInitials = (nameStr: string) => {
+    if (!nameStr) return '??';
+    const parts = nameStr.trim().split(/\s+/);
+    if (parts.length >= 2 && parts[0] && parts[1]) {
       return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
-    return name.substring(0, 2).toUpperCase();
+    return nameStr.substring(0, 2).toUpperCase();
   };
 
   const containerStyle = {

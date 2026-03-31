@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, ScrollView, Text, StyleSheet } from 'react-native';
+import { View, ScrollView, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { GradientBackground, SectionTitle, MissionCard, StatCard, GradientButton, UserAvatar } from '../../components';
 import { colors, spacing, typography } from '../../theme';
 import { useNavigation } from '@react-navigation/native';
+import { Feather } from '@expo/vector-icons';
 import { MOCK_MISSIONS, MOCK_VOLUNTEER_STATS } from '../../services/mock';
 import { useEventStore } from '../../services/store/useEventStore';
 
@@ -40,7 +41,16 @@ export const VolunteerHomeScreen = () => {
           <Text style={styles.greetingText}>Good Morning,</Text>
           <Text style={typography.headingMedium}>{userName}</Text>
         </View>
-        <UserAvatar name={userName} size={48} />
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('ChatList')}
+            style={styles.chatHeaderBtn}
+          >
+            <Feather name="message-circle" size={24} color={colors.primaryGreen} />
+            <View style={styles.chatBadge} />
+          </TouchableOpacity>
+          <UserAvatar name={userName} size={48} />
+        </View>
       </View>
 
       <ScrollView 
@@ -55,26 +65,20 @@ export const VolunteerHomeScreen = () => {
               title="My Assignments" 
               icon="calendar"
               onPress={() => navigation.navigate('Assignments')} 
-              style={{ flex: 1, marginRight: spacing.sm }} 
+              style={{ flex: 1 }} 
               badge={pendingCount > 0 ? pendingCount.toString() : undefined}
-            />
-            <GradientButton 
-              title="Availability" 
-              icon="clock"
-              onPress={() => navigation.navigate('Availability')} 
-              style={{ flex: 1, marginLeft: spacing.sm }} 
             />
           </View>
           <View style={styles.quickActions}>
             <GradientButton 
-              title="Report Help" 
-              icon="life-buoy"
-              onPress={() => {}} 
+              title="Availability" 
+              icon="clock"
+              onPress={() => navigation.navigate('Availability')} 
               style={{ flex: 1, marginRight: spacing.sm }} 
             />
             <GradientButton 
-              title="Post Update" 
-              icon="edit-3"
+              title="Report Help" 
+              icon="life-buoy"
               onPress={() => {}} 
               style={{ flex: 1, marginLeft: spacing.sm }} 
             />
@@ -172,5 +176,34 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: spacing.xl,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  chatHeaderBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  chatBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#E53935',
+    borderWidth: 2,
+    borderColor: '#fff',
   },
 });

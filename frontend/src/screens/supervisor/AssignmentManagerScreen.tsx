@@ -187,7 +187,12 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
                   </Text>
                 </View>
                 {items.map((a) => (
-                  <AssignmentRow key={a.id} assignment={a} allProfiles={allVolunteerProfiles} />
+                  <AssignmentRow 
+                    key={a.id} 
+                    assignment={a} 
+                    allProfiles={allVolunteerProfiles} 
+                    navigation={navigation}
+                  />
                 ))}
               </View>
             );
@@ -213,10 +218,12 @@ const StatChip = ({ label, value, color }: { label: string; value: number; color
 
 const AssignmentRow = ({ 
   assignment, 
-  allProfiles 
+  allProfiles,
+  navigation
 }: { 
   assignment: VolunteerAssignment; 
-  allProfiles: any[] 
+  allProfiles: any[];
+  navigation: any;
 }) => {
   const cfg = STATUS_CONFIG[assignment.status] ?? STATUS_CONFIG.pending;
   const matchPct = Math.round(assignment.match_score * 100);
@@ -257,6 +264,27 @@ const AssignmentRow = ({
         </View>
       </View>
       <View style={styles.rightCol}>
+        <TouchableOpacity 
+          onPress={() => navigation.navigate('Chat', {
+            volunteer_id: assignment.volunteer_id,
+            supervisor_id: 'sup_deepak_1',
+            event_id: assignment.event_id,
+            recipient_name: assignment.volunteer_name,
+            volunteer_name: assignment.volunteer_name,
+            supervisor_name: 'Deepak Chawla (Supervisor)',
+            event_name: assignment.event_type,
+            metadata: {
+              event_name: assignment.event_type,
+              event_description: assignment.event_description || 'No description available.',
+              match_score: matchPct,
+              area: liveProfile?.area || assignment.volunteer_area || 'Nagpur',
+              skills: skillsToDisplay
+            }
+          })}
+          style={styles.chatRowBtn}
+        >
+          <Feather name="message-square" size={18} color={colors.primaryGreen} />
+        </TouchableOpacity>
         <View style={[styles.statusPill, { backgroundColor: cfg.bg }]}>
           <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
         </View>
@@ -324,6 +352,12 @@ const styles = StyleSheet.create({
   skillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   microChip: { backgroundColor: colors.accentBlue + '12', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
   microChipText: { fontSize: 9, color: colors.accentBlue, fontWeight: '600' as const },
+  chatRowBtn: {
+    padding: 8,
+    marginBottom: 4,
+    backgroundColor: colors.primaryGreen + '10',
+    borderRadius: 8,
+  },
   rightCol: { alignItems: 'flex-end', gap: 4 },
   statusPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusPillText: { fontSize: 11, fontWeight: '700' as const },

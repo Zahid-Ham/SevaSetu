@@ -68,6 +68,18 @@ def run_auto_assignment(
         if not has_skill_match and not has_date_match:
             continue
 
+        reasoning = generate_ai_reasoning(
+            score=score,
+            breakdown=breakdown,
+            required_skills=required_skills,
+            volunteer_skills=volunteer.get("skills", []),
+            event_start=event_start,
+            event_end=event_end,
+            event_area=event_area,
+            volunteer_area=volunteer.get("area", ""),
+            volunteer_fatigue=volunteer.get("fatigue_score", 0)
+        )
+
         scored.append({
             "volunteer_id": volunteer.get("id", volunteer.get("volunteer_id", "")),
             "volunteer_name": volunteer.get("name", "Unknown"),
@@ -75,11 +87,12 @@ def run_auto_assignment(
             "volunteer_area": volunteer.get("area", ""),
             "match_score": round(score, 3),
             "score_breakdown": breakdown,
+            "ai_reasoning": reasoning,
             "event_id": event.get("id", ""),
             "event_type": event.get("event_type", ""),
             "event_date_start": event_start,
             "event_date_end": event_end,
-            "event_required_skills": required_skills,  # Added to payload
+            "event_required_skills": required_skills,
             "status": "pending",
             "is_fallback": False,
         })
@@ -219,3 +232,59 @@ def skills_matched_label(volunteer_skills: list[str], required_skills: list[str]
         return "All skills match"
     matches = sum(1 for s in required_skills if s in volunteer_skills)
     return f"{matches}/{len(required_skills)} required skills"
+
+
+def generate_ai_reasoning(
+    score: float,
+    breakdown: dict,
+    required_skills: list[str],
+    volunteer_skills: list[str],
+    event_start: str,
+    event_end: str,
+    event_area: str,
+    volunteer_area: str,
+    volunteer_fatigue: int
+) -> str:
+    """
+    Generates a human-readable string explaining why a volunteer was matched.
+    Commonly shared between Push and Pull models.
+    """
+    parts = []
+    
+    # Skills
+    matched_skills = [s for s in required_skills if s in volunteer_skills]
+    skill_pct = breakdown.get("skill_match_pct", 0)
+    if matched_skills:
+        parts.append(f"Skills: You have {len(matched_skills)}/{len(required_skills)} required skills ({', '.join(s.replace('_',' ') for s in matched_skills)}), contributing {skill_pct}% to your score.")
+    else:
+        parts.append(f"Skills: No direct skill match for {', '.join(s.replace('_',' ') for s in (required_skills or []))}.")
+
+    # Availability
+    avail_pct = breakdown.get("availability_pct", 0)
+    if avail_pct >= 100:
+        parts.append(f"Availability: Fully available across all event days ({event_start} to {event_end}).")
+    elif avail_pct > 0:
+        parts.append(f"Availability: Partially available — {avail_pct}% of event days covered ({event_start} to {event_end}).")
+    else:
+        parts.append(f"Availability: None of your dates overlap the event ({event_start} to {event_end}).")
+
+    # Area
+    area_pct = breakdown.get("area_match_pct", 0)
+    if area_pct >= 100:
+        parts.append(f"Area: Perfect location match — {event_area}.")
+    elif area_pct >= 70:
+        parts.append(f"Area: Partial match — {volunteer_area} is near {event_area}.")
+    else:
+        parts.append(f"Area: Location mismatch — you are in {volunteer_area or 'unknown'}, event is in {event_area}.")
+
+    # Fatigue
+    fatigue_pct = breakdown.get("fatigue_buffer_pct", 0)
+    if volunteer_fatigue == 0:
+        parts.append(f"Workload: No recent assignments — full energy available ({fatigue_pct}% workload score).")
+    elif volunteer_fatigue <= 2:
+        parts.append(f"Workload: Moderate fatigue ({volunteer_fatigue}/5) — well within healthy range.")
+    else:
+        parts.append(f"Workload: High fatigue ({volunteer_fatigue}/5) — rest recommended before taking more assignments.")
+
+    label = "Excellent Match" if score >= 0.75 else "Good Match" if score >= 0.55 else "Partial Match"
+    return f"Overall: {label} ({round(score*100)}%)\n\n" + "\n\n".join(parts)

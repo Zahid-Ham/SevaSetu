@@ -583,38 +583,17 @@ async def get_live_matches_for_volunteer(volunteer_id: str):
                 continue
 
             # Build AI reasoning string
-            parts = []
-            if matched_skills:
-                parts.append(f"Skills: You have {len(matched_skills)}/{len(required_skills)} required skills ({', '.join(s.replace('_',' ') for s in matched_skills)}), contributing {skill_pct}% to your score.")
-            else:
-                parts.append(f"Skills: No direct skill match for {', '.join(s.replace('_',' ') for s in required_skills)}.")
-
-            if avail_pct >= 100:
-                parts.append(f"Availability: Fully available across all event days ({event_start} to {event_end}).")
-            elif avail_pct > 0:
-                parts.append(f"Availability: Partially available — {avail_pct}% of event days covered ({event_start} to {event_end}).")
-            else:
-                parts.append(f"Availability: None of your dates overlap the event ({event_start} to {event_end}).")
-
-            area_pct = breakdown.get("area_match_pct", 0)
-            if area_pct >= 100:
-                parts.append(f"Area: Perfect location match — {event_area}.")
-            elif area_pct >= 70:
-                parts.append(f"Area: Partial match — {volunteer_area} is near {event_area}.")
-            else:
-                parts.append(f"Area: Location mismatch — you are in {volunteer_area or 'unknown'}, event is in {event_area}.")
-
-            fatigue_val = volunteer.get("fatigue_score", 0)
-            fatigue_pct = breakdown.get("fatigue_buffer_pct", 0)
-            if fatigue_val == 0:
-                parts.append(f"Workload: No recent assignments — full energy available ({fatigue_pct}% workload score).")
-            elif fatigue_val <= 2:
-                parts.append(f"Workload: Moderate fatigue ({fatigue_val}/5) — well within healthy range.")
-            else:
-                parts.append(f"Workload: High fatigue ({fatigue_val}/5) — rest recommended before taking more assignments.")
-
-            label = "Excellent Match" if score >= 0.75 else "Good Match" if score >= 0.55 else "Partial Match"
-            ai_reasoning = f"Overall: {label} ({round(score*100)}%)\n\n" + "\n\n".join(parts)
+            ai_reasoning = assignment_service.generate_ai_reasoning(
+                score=score,
+                breakdown=breakdown,
+                required_skills=required_skills,
+                volunteer_skills=volunteer_skills,
+                event_start=event_start,
+                event_end=event_end,
+                event_area=event_area,
+                volunteer_area=volunteer_area,
+                volunteer_fatigue=volunteer.get("fatigue_score", 0)
+            )
 
             matches.append({
                 "event_id": event.get("id", ""),

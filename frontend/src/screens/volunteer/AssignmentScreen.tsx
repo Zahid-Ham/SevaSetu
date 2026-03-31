@@ -2,14 +2,14 @@
  * AssignmentScreen.tsx
  * Volunteer view — Pending / Accepted / Past assignments.
  * Pending tab shows REAL-TIME matches against confirmed live events.
- * Each card has an "AI Reasoning" button showing why the volunteer was matched.
+ * Each mission card has an "AI Reasoning" button showing why the volunteer was matched.
  */
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Animated, ActivityIndicator, RefreshControl, Modal,
-  TouchableWithoutFeedback, Platform,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,15 +35,33 @@ const CATEGORY_ICONS: Record<string, string> = {
 
 // ── AI Reasoning Modal ─────────────────────────────────────────────────────────
 
-const ReasoningModal = ({ visible, reasoning, eventName, onClose }: {
+const ReasoningModal = ({ visible, reasoning, eventName, scoreBreakdown, onClose }: {
   visible: boolean;
   reasoning: string;
   eventName: string;
+  scoreBreakdown?: any;
   onClose: () => void;
 }) => {
   if (!visible) return null;
 
-  const lines = reasoning.split('\n\n');
+  // Fallback reasoning if the data was seeded before the AI update
+  let aiText = reasoning || '';
+  if (!aiText && scoreBreakdown) {
+    const parts = [
+      `Overall: Partial Match (Heuristic Data)`,
+      `Skills: This mission utilizes your technical expertise (${scoreBreakdown.skill_match_pct || 0}% score).`,
+      `Availability: Our records indicate a ${scoreBreakdown.availability_pct || 0}% overlap with the mission window.`,
+      `Area: Proximity and travel distance contribute ${scoreBreakdown.area_match_pct || 0}% to your matching weight.`,
+      `Workload: Your current assignment frequency is healthy (${scoreBreakdown.fatigue_buffer_pct || 0}% score).`
+    ];
+    aiText = parts.join('\n\n');
+  }
+
+  if (!aiText) {
+    aiText = "Data Sync in Progress\n\nFull AI justification will appear once the mission details are re-verified by the dispatcher.";
+  }
+
+  const lines = aiText.split('\n\n');
   const headline = lines[0] || '';
   const details = lines.slice(1);
 
@@ -69,7 +87,7 @@ const ReasoningModal = ({ visible, reasoning, eventName, onClose }: {
 
               <ScrollView contentContainerStyle={modalStyles.body}>
                 {/* Overall score banner */}
-                <View style={[modalStyles.scoreBanner, { borderColor: headlineColor }]}>
+                <View style={[modalStyles.scoreBanner, { borderColor: headlineColor, display: headline ? 'flex' : 'none' }]}>
                   <Text style={[modalStyles.scoreBannerText, { color: headlineColor }]}>
                     {headline}
                   </Text>
@@ -82,7 +100,7 @@ const ReasoningModal = ({ visible, reasoning, eventName, onClose }: {
                     line.startsWith('Availability:') ? '📅' :
                     line.startsWith('Area:') ? '📍' :
                     line.startsWith('Workload:') ? '⚡' : '•';
-                  const isPositive = line.includes('Fully') || line.includes('Perfect') || line.includes('No recent') || line.startsWith('Skills: You have');
+                  const isPositive = line.includes('Fully') || line.includes('Perfect') || line.includes('No recent') || line.startsWith('Skills: You have') || line.includes('technical expertise');
                   const isWarning = line.includes('Partial') || line.includes('Moderate') || line.includes('near');
                   const borderColor = isPositive ? colors.success : isWarning ? colors.primarySaffron : colors.error;
 
@@ -106,17 +124,168 @@ const ReasoningModal = ({ visible, reasoning, eventName, onClose }: {
   );
 };
 
+// ── Filter Modal ─────────────────────────────────────────────────────────────
+
+const FilterModal = ({ visible, filters, onApply, onClose, onReset, availableSkills }: {
+  visible: boolean;
+  filters: FilterOptions;
+  onApply: (f: FilterOptions) => void;
+  onClose: () => void;
+  onReset: () => void;
+  availableSkills: string[];
+}) => {
+  const [tempFilters, setTempFilters] = useState<FilterOptions>(filters);
+
+  useEffect(() => {
+    if (visible) setTempFilters(filters);
+  }, [visible, filters]);
+
+  if (!visible) return null;
+
+  const toggleSkill = (skill: string) => {
+    setTempFilters(prev => ({
+      ...prev,
+      requiredSkills: prev.requiredSkills.includes(skill)
+        ? prev.requiredSkills.filter(s => s !== skill)
+        : [...prev.requiredSkills, skill],
+    }));
+  };
+
+  const updateThreshold = (key: keyof FilterOptions, val: number) => {
+    setTempFilters(prev => ({ ...prev, [key]: val }));
+  };
+
+  const ThresholdSelector = ({ label, value, onSelect }: { label: string, value: number, onSelect: (v: number) => void }) => (
+    <View style={filterStyles.thresholdContainer}>
+      <Text style={filterStyles.thresholdLabel}>{label} ({value}%)</Text>
+      <View style={filterStyles.thresholdOptions}>
+        {[0, 25, 50, 75].map(v => (
+          <TouchableOpacity 
+            key={v} 
+            style={[filterStyles.thresholdOption, value === v && filterStyles.thresholdOptionActive]}
+            onPress={() => onSelect(v)}
+          >
+            <Text style={[filterStyles.thresholdOptionText, value === v && filterStyles.thresholdOptionTextActive]}>
+              {v === 0 ? 'Any' : `>${v}%`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={modalStyles.backdrop}>
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={{ flex: 1 }} />
+        </TouchableWithoutFeedback>
+        <View style={[modalStyles.sheet, { maxHeight: '85%' }]}>
+          <View style={filterStyles.header}>
+            <TouchableOpacity onPress={onReset}>
+              <Text style={filterStyles.resetText}>Reset</Text>
+            </TouchableOpacity>
+            <Text style={filterStyles.title}>Filters</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Feather name="x" size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ padding: spacing.lg }}>
+            <Text style={filterStyles.sectionTitle}>Minimum Thresholds</Text>
+            <ThresholdSelector 
+              label="Skill Match" 
+              value={tempFilters.minSkillMatch} 
+              onSelect={(v) => updateThreshold('minSkillMatch', v)} 
+            />
+            <ThresholdSelector 
+              label="Availability" 
+              value={tempFilters.minAvailability} 
+              onSelect={(v) => updateThreshold('minAvailability', v)} 
+            />
+            <ThresholdSelector 
+              label="Area Match" 
+              value={tempFilters.minAreaMatch} 
+              onSelect={(v) => updateThreshold('minAreaMatch', v)} 
+            />
+            <ThresholdSelector 
+              label="Overall AI Score" 
+              value={tempFilters.minTotalScore} 
+              onSelect={(v) => updateThreshold('minTotalScore', v)} 
+            />
+
+            <View style={{ marginTop: 24 }}>
+              <Text style={filterStyles.sectionTitle}>Filter by Required Skills</Text>
+              <View style={filterStyles.skillsGrid}>
+                {availableSkills.map(skill => (
+                  <TouchableOpacity 
+                    key={skill} 
+                    style={[filterStyles.skillChip, tempFilters.requiredSkills.includes(skill) && filterStyles.skillChipActive]}
+                    onPress={() => toggleSkill(skill)}
+                  >
+                    <Text style={filterStyles.skillIcon}>{SKILL_ICONS[skill] || '🔸'}</Text>
+                    <Text style={[filterStyles.skillName, tempFilters.requiredSkills.includes(skill) && filterStyles.skillNameActive]}>
+                      {skill.replace('_', ' ')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+
+          <View style={filterStyles.footer}>
+            <TouchableOpacity 
+              style={filterStyles.applyBtn} 
+              onPress={() => {
+                onApply(tempFilters);
+                onClose();
+              }}
+            >
+              <LinearGradient 
+                colors={[colors.primaryGreen, '#1B5E20']} 
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={filterStyles.applyGradient}
+              >
+                <Text style={filterStyles.applyText}>Apply Filters</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // ── Main Screen ────────────────────────────────────────────────────────────────
+
+interface FilterOptions {
+  minSkillMatch: number;
+  minAvailability: number;
+  minAreaMatch: number;
+  minTotalScore: number;
+  requiredSkills: string[];
+}
+
+const DEFAULT_FILTERS: FilterOptions = {
+  minSkillMatch: 0,
+  minAvailability: 0,
+  minAreaMatch: 0,
+  minTotalScore: 0,
+  requiredSkills: [],
+};
 
 export const AssignmentScreen = ({ navigation }: any) => {
   const [activeTab, setActiveTab] = useState<Tab>('Pending');
   const [refreshing, setRefreshing] = useState(false);
-  const [reasoningMatch, setReasoningMatch] = useState<LiveMatch | null>(null);
+  const [reasoningMatch, setReasoningMatch] = useState<any>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<FilterOptions>(DEFAULT_FILTERS);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const {
     assignments, loadAssignments, respondAssignment,
-    loadingAssignments, loadingAction, volunteerId,
+    loadingAssignments, volunteerId,
     acceptedAssignments, pastAssignments,
     volunteerProfile, liveMatches, loadLiveMatches,
     joinMatch,
@@ -141,21 +310,48 @@ export const AssignmentScreen = ({ navigation }: any) => {
     setRefreshing(false);
   };
 
-  const handleJoin = async (match: any, status: 'accepted' | 'declined') => {
-    await Haptics.impactAsync(
-      status === 'accepted' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-    );
-    await joinMatch(
-      match.event_id, 
-      volunteerId, 
-      status, 
-      match.match_score, 
-      match.score_breakdown
-    );
-  };
+  const pendingAssignments = (assignments || []).filter(a => a.status === 'pending');
 
-  const pendingAssignments = assignments.filter(a => a.status === 'pending');
-  const pendingCount = liveMatches.length + pendingAssignments.length;
+  // ── Reactive Filtering Logic ────────────────────────────────────────────────
+  const filteredData = React.useMemo(() => {
+    const applyFilter = (item: any) => {
+      const breakdown = item.score_breakdown || {};
+      const score = (item.match_score || 0) * 100;
+      
+      const skillPct = breakdown.skill_match_pct || 0;
+      const availPct = breakdown.availability_pct || 0;
+      const areaPct = breakdown.area_match_pct || 0;
+
+      // 1. Threshold Filters
+      if (skillPct < filters.minSkillMatch) return false;
+      if (availPct < filters.minAvailability) return false;
+      if (areaPct < filters.minAreaMatch) return false;
+      if (score < filters.minTotalScore) return false;
+
+      // 2. Specific Skill Match (OR logic)
+      if (filters.requiredSkills.length > 0) {
+        const itemSkills = item.matched_skills || item.volunteer_skills || [];
+        const hasSkill = filters.requiredSkills.some(s => itemSkills.includes(s));
+        if (!hasSkill) return false;
+      }
+
+      return true;
+    };
+
+    return {
+      pending: pendingAssignments.filter(applyFilter),
+      live: (liveMatches || []).filter(applyFilter)
+    };
+  }, [pendingAssignments, liveMatches, filters]);
+
+  const activeFilterCount = Object.entries(filters).reduce((acc, [key, val]) => {
+    if (key === 'requiredSkills') return acc + (val as string[]).length;
+    if (typeof val === 'number' && val > 0) return acc + 1;
+    return acc;
+  }, 0);
+
+  const rawPendingCount = pendingAssignments.length + (liveMatches || []).length;
+  const pendingCount = filteredData.live.length + filteredData.pending.length;
   const acceptedList = acceptedAssignments();
   const pastList = pastAssignments();
 
@@ -199,12 +395,12 @@ export const AssignmentScreen = ({ navigation }: any) => {
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primaryGreen} />}
         >
           {activeTab === 'Pending' && (
             <>
-              {pendingCount === 0 ? (
+              {rawPendingCount === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyIcon}>📡</Text>
                   <Text style={styles.emptyTitle}>No Pending Missions</Text>
@@ -216,38 +412,106 @@ export const AssignmentScreen = ({ navigation }: any) => {
               ) : (
                 <>
                   <View style={styles.sectionHeader}>
-                    <Feather name="zap" size={13} color={colors.primaryGreen} />
-                    <Text style={styles.sectionHeaderText}>
-                      {pendingCount} pending mission{pendingCount > 1 ? 's' : ''} found
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                      <Feather name="zap" size={13} color={colors.primaryGreen} />
+                      <Text style={styles.sectionHeaderText}>
+                        {pendingCount} mission{pendingCount !== 1 ? 's' : ''} shown
+                      </Text>
+                    </View>
+                    
+                    <TouchableOpacity 
+                      style={[styles.filterBtn, activeFilterCount > 0 && styles.filterBtnActive]} 
+                      onPress={() => setShowFilters(true)}
+                    >
+                      <Feather name="filter" size={14} color={activeFilterCount > 0 ? '#fff' : colors.primaryGreen} />
+                      <Text style={[styles.filterBtnText, activeFilterCount > 0 && { color: '#fff' }]}>Filter</Text>
+                      {activeFilterCount > 0 && (
+                        <View style={styles.filterBadge}>
+                          <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   </View>
+
+                  {/* Active Filters Row */}
+                  {activeFilterCount > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.activeFiltersRow} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
+                      {Object.entries(filters).map(([key, val]) => {
+                        if (key === 'requiredSkills') {
+                          return (val as string[]).map(s => (
+                            <TouchableOpacity key={s} style={styles.activeFilterChip} onPress={() => setFilters(f => ({ ...f, requiredSkills: f.requiredSkills.filter(x => x !== s) }))}>
+                              <Text style={styles.activeFilterChipText}>{s.replace('_', ' ')}</Text>
+                              <Feather name="x" size={10} color={colors.primaryGreen} />
+                            </TouchableOpacity>
+                          ));
+                        }
+                        if (typeof val === 'number' && val > 0) {
+                          const label = key === 'minSkillMatch' ? 'Skills' : key === 'minAvailability' ? 'Avail' : key === 'minAreaMatch' ? 'Area' : 'Score';
+                          return (
+                            <TouchableOpacity key={key} style={styles.activeFilterChip} onPress={() => setFilters(f => ({ ...f, [key]: 0 }))}>
+                              <Text style={styles.activeFilterChipText}>{label} &gt; {val}%</Text>
+                              <Feather name="x" size={10} color={colors.primaryGreen} />
+                            </TouchableOpacity>
+                          );
+                        }
+                        return null;
+                      })}
+                      <TouchableOpacity onPress={() => setFilters(DEFAULT_FILTERS)}>
+                        <Text style={[styles.filterBtnText, { color: colors.error, marginLeft: 8 }]}>Clear All</Text>
+                      </TouchableOpacity>
+                    </ScrollView>
+                  )}
                   
                   {/* 1. Show Direct Assignments first */}
-                  {pendingAssignments.map((assign) => (
-                    <DirectAssignmentCard
+                  {(filteredData.pending || []).map((assign) => (
+                    <MissionCard
                       key={assign.id}
-                      assignment={assign}
-                      onAccept={() => respondAssignment(assign.id, 'accepted')}
-                      onDecline={() => respondAssignment(assign.id, 'declined')}
-                      loading={loadingAction}
+                      data={assign}
+                      isDirect={true}
+                      currentSkills={volunteerProfile?.skills ?? []}
+                      onAccept={async () => await respondAssignment(assign.id, 'accepted')}
+                      onDecline={async () => await respondAssignment(assign.id, 'declined')}
+                      onViewReasoning={() => {
+                        Haptics.selectionAsync();
+                        setReasoningMatch(assign);
+                      }}
+                      navigation={navigation}
                     />
                   ))}
 
                   {/* 2. Show AI Suggested matches */}
-                  {liveMatches.map((match) => (
-                    <LiveMatchCard
+                  {(filteredData.live || []).map((match) => (
+                    <MissionCard
                       key={match.event_id}
-                      match={match}
+                      data={match}
+                      isDirect={false}
                       currentSkills={volunteerProfile?.skills ?? []}
-                      onAccept={() => handleJoin(match, 'accepted')}
-                      onDecline={() => handleJoin(match, 'declined')}
-                      loading={loadingAction}
+                      onAccept={async () => {
+                         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                         await joinMatch(match.event_id, volunteerId, 'accepted', match.match_score, match.score_breakdown);
+                      }}
+                      onDecline={async () => {
+                         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                         await joinMatch(match.event_id, volunteerId, 'declined', match.match_score, match.score_breakdown);
+                      }}
                       onViewReasoning={() => {
                         Haptics.selectionAsync();
                         setReasoningMatch(match);
                       }}
+                      navigation={navigation}
                     />
                   ))}
+
+                  {pendingCount === 0 && (
+                    <View style={styles.noResults}>
+                      <Feather name="search" size={40} color={colors.textSecondary} style={{ opacity: 0.3 }} />
+                      <Text style={styles.noResultsTitle}>No results for these filters</Text>
+                      <Text style={styles.noResultsSub}>Try relaxing your thresholds or selecting fewer skills.</Text>
+                      <TouchableOpacity style={styles.clearFiltersBtn} onPress={() => setFilters(DEFAULT_FILTERS)}>
+                        <Text style={styles.clearFiltersText}>Reset All Filters</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </>
               )}
             </>
@@ -288,71 +552,47 @@ export const AssignmentScreen = ({ navigation }: any) => {
         visible={!!reasoningMatch}
         reasoning={reasoningMatch?.ai_reasoning ?? ''}
         eventName={reasoningMatch?.event_type ?? ''}
+        scoreBreakdown={reasoningMatch?.score_breakdown}
         onClose={() => setReasoningMatch(null)}
+      />
+
+      {/* Filter Modal */}
+      <FilterModal
+        visible={showFilters}
+        filters={filters}
+        onApply={setFilters}
+        onReset={() => setFilters(DEFAULT_FILTERS)}
+        onClose={() => setShowFilters(false)}
+        availableSkills={Object.keys(SKILL_ICONS)}
       />
     </View>
   );
 };
 
-// ── Direct Assignment Card (Push Model) ──────────────────────────────────────────
+// ── Harmonized Mission Card Component ──────────────────────────────────────────
 
-const DirectAssignmentCard = ({ assignment, onAccept, onDecline, loading }: {
-  assignment: VolunteerAssignment;
-  onAccept: () => void;
-  onDecline: () => void;
-  loading: boolean;
-}) => {
-  return (
-    <View style={[globalStyles.card, styles.card, styles.directCard]}>
-      <View style={styles.cardHeader}>
-        <View style={{ flex: 1 }}>
-          <View style={styles.directBadge}>
-            <Text style={styles.directBadgeText}>🎯 DIRECT ASSIGNMENT</Text>
-          </View>
-          <Text style={styles.eventType}>{assignment.event_type}</Text>
-          <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {assignment.volunteer_area}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.directDescription}>
-        The supervisor has specifically selected you for this mission based on your skills and proximity.
-      </Text>
-
-      <View style={styles.detailRow}>
-        <Feather name="calendar" size={13} color={colors.textSecondary} />
-        <Text style={styles.detailText}>{assignment.event_date_start} → {assignment.event_date_end}</Text>
-      </View>
-
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.declineBtn} onPress={onDecline} disabled={loading}>
-          <Feather name="x" size={16} color={colors.error} />
-          <Text style={styles.declineBtnText}>Reject</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.acceptBtn} onPress={onAccept} disabled={loading}>
-          <LinearGradient colors={['#1A237E', '#283593']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.acceptGradient}>
-            {loading ? <ActivityIndicator size="small" color="#fff" /> : <><Feather name="check" size={16} color="#fff" /><Text style={styles.acceptBtnText}>Accept Mission</Text></>}
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-// ── Live Match Card (Pending Tab / Pull Model) ───────────────────────────────────
-
-const LiveMatchCard = ({ match, currentSkills, onViewReasoning, onAccept, onDecline, loading }: {
-  match: LiveMatch;
+const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onViewReasoning, navigation }: {
+  data: any;
+  isDirect: boolean;
   currentSkills: string[];
+  onAccept: () => Promise<void>;
+  onDecline: () => Promise<void>;
   onViewReasoning: () => void;
-  onAccept: () => void;
-  onDecline: () => void;
-  loading: boolean;
+  navigation: any;
 }) => {
+  const [loading, setLoading] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const onPressIn = () => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start();
-  const onPressOut = () => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start();
+  
+  const handleAction = async (action: () => Promise<void>) => {
+    setLoading(true);
+    try {
+      await action();
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const matchPct = Math.round(match.match_score * 100);
+  const matchPct = Math.round((data.match_score || 0) * 100);
   const barColor = matchPct >= 75 ? ['#2E7D32', '#66BB6A'] as const
     : matchPct >= 55 ? ['#FBC02D', '#FFD54F'] as const
     : ['#E65100', '#FF8C42'] as const;
@@ -360,131 +600,147 @@ const LiveMatchCard = ({ match, currentSkills, onViewReasoning, onAccept, onDecl
   const matchLabel = matchPct >= 75 ? 'Excellent Match' : matchPct >= 55 ? 'Good Match' : 'Partial Match';
   const matchLabelColor = matchPct >= 75 ? colors.success : matchPct >= 55 ? colors.primarySaffron : colors.warning;
 
-  const fillPct = Math.min((match.accepted_count / Math.max(match.estimated_headcount, 1)) * 100, 100);
-  const spotsLeft = match.estimated_headcount - match.accepted_count;
-
   return (
     <Animated.View style={[{ transform: [{ scale: scaleAnim }] }]}>
-      <View style={[globalStyles.card, styles.card]}>
-        {/* Category icon + Event name */}
-      <View style={styles.cardHeader}>
-        <Text style={styles.categoryIcon}>{CATEGORY_ICONS[match.category] || '📋'}</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.eventType}>{match.event_type}</Text>
-          <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {match.area}</Text>
-        </View>
-        <View style={[styles.matchBadge, { backgroundColor: matchLabelColor + '20' }]}>
-          <Text style={[styles.matchBadgeText, { color: matchLabelColor }]}>{matchLabel}</Text>
-        </View>
-      </View>
-
-      {/* Match score bar */}
-      <View style={styles.matchRow}>
-        <Text style={styles.matchLabel}>AI Match Score</Text>
-        <Text style={[styles.matchValue, { color: matchLabelColor }]}>{matchPct}%</Text>
-      </View>
-      <View style={styles.matchBarBg}>
-        <LinearGradient colors={barColor} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-          style={[styles.matchBarFill, { width: `${matchPct}%` as any }]} />
-      </View>
-
-      {/* Details */}
-      <View style={styles.detailRow}>
-        <Feather name="calendar" size={13} color={colors.textSecondary} />
-        <Text style={styles.detailText}>{match.event_date_start} → {match.event_date_end}</Text>
-      </View>
-      <View style={styles.detailRow}>
-        <Feather name="users" size={13} color={colors.textSecondary} />
-        <Text style={styles.detailText}>
-          {match.accepted_count}/{match.estimated_headcount} volunteers joined • {spotsLeft > 0 ? `${spotsLeft} spots left` : 'Full'}
-        </Text>
-      </View>
-
-      {/* Fill rate bar */}
-      <View style={styles.fillBarBg}>
-        <View style={[styles.fillBarFill, { width: `${fillPct}%` as any }]} />
-      </View>
-
-      {/* Matched Skills */}
-      <View style={styles.skillsSection}>
-        <Text style={styles.skillsHeader}>Your Matching Skills</Text>
-        <View style={styles.skillsRow}>
-          {(Array.isArray(match.matched_skills) ? match.matched_skills : []).length > 0 ? (Array.isArray(match.matched_skills) ? match.matched_skills : []).map((s) => (
-            <View key={s} style={[styles.skillChip, styles.skillChipMatch]}>
-              <Text style={styles.skillChipTextMatch}>{SKILL_ICONS[s] || '✅'} {(s || '').replace('_', ' ')}</Text>
-            </View>
-          )) : (
-            <Text style={styles.noMatchText}>No direct skill match — check your profile</Text>
+      <View style={[globalStyles.card, styles.card, isDirect && styles.directCard]}>
+        
+        {/* Header Block */}
+        <View style={styles.cardHeader}>
+          {isDirect ? (
+             <View style={{ flex: 1 }}>
+               <View style={styles.directBadge}>
+                 <Text style={styles.directBadgeText}>🎯 DIRECT ASSIGNMENT</Text>
+               </View>
+               <Text style={styles.eventType}>{data.event_type}</Text>
+               <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {data.volunteer_area || data.area}</Text>
+             </View>
+          ) : (
+            <>
+              <Text style={styles.categoryIcon}>{CATEGORY_ICONS[data.category] || '📋'}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.eventType}>{data.event_type}</Text>
+                <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {data.area}</Text>
+              </View>
+            </>
           )}
+            <View style={[styles.matchBadge, { backgroundColor: matchLabelColor + '20' }]}>
+              <Text style={[styles.matchBadgeText, { color: matchLabelColor }]}>{matchLabel}</Text>
+            </View>
+            <TouchableOpacity 
+              onPress={() => navigation.navigate('Chat', {
+                volunteer_id: data.volunteer_id,
+                supervisor_id: 'sup_deepak_1',
+                event_id: data.event_id,
+                recipient_name: 'Deepak Chawla (Supervisor)',
+                volunteer_name: 'Me',
+                supervisor_name: 'Deepak Chawla (Supervisor)',
+                event_name: data.event_type,
+                metadata: {
+                  event_name: data.event_type,
+                  event_description: data.event_description || 'Mission details related to ' + data.event_type,
+                  match_score: matchPct,
+                  area: data.volunteer_area || 'Nagpur',
+                  skills: data.volunteer_skills || []
+                }
+              })}
+              style={styles.chatIconBtn}
+            >
+              <Feather name="message-circle" size={22} color={colors.primaryGreen} />
+              <View style={styles.chatBadge} />
+            </TouchableOpacity>
+          </View>
+
+        {isDirect && (
+          <Text style={styles.directDescription}>
+            The supervisor has specifically selected you for this mission based on your profile.
+          </Text>
+        )}
+
+        {/* AI Match Score Bar */}
+        <View style={styles.matchRow}>
+          <Text style={styles.matchLabel}>AI Match Score</Text>
+          <Text style={[styles.matchValue, { color: matchLabelColor }]}>{matchPct}%</Text>
+        </View>
+        <View style={styles.matchBarBg}>
+          <LinearGradient colors={barColor} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={[styles.matchBarFill, { width: `${matchPct}%` as any }]} />
         </View>
 
-        {/* Other required skills */}
-        {(Array.isArray(match.event_required_skills) ? match.event_required_skills : []).filter(s => !(Array.isArray(currentSkills) ? currentSkills : []).includes(s)).length > 0 && (
-          <>
-            <Text style={[styles.skillsHeader, { marginTop: spacing.xs }]}>Other Requirements</Text>
-            <View style={styles.skillsRow}>
-              {(Array.isArray(match.event_required_skills) ? match.event_required_skills : []).filter(s => !(Array.isArray(currentSkills) ? currentSkills : []).includes(s)).map((s) => (
-                <View key={s} style={[styles.skillChip, styles.skillChipRequired]}>
-                  <Text style={styles.skillChipTextRequired}>{SKILL_ICONS[s] || '🔹'} {(s || '').replace('_', ' ')}</Text>
+        {/* Event Timing Details */}
+        <View style={styles.detailRow}>
+          <Feather name="calendar" size={13} color={colors.textSecondary} />
+          <Text style={styles.detailText}>{data.event_date_start} → {data.event_date_end}</Text>
+        </View>
+
+        {/* Skill Matching Section */}
+        <View style={styles.skillsSection}>
+           <Text style={styles.skillsHeader}>Your Matching Skills</Text>
+           <View style={styles.skillsRow}>
+              {/* Matched Skills */}
+              {(data.matched_skills || (Array.isArray(data.volunteer_skills) ? data.volunteer_skills : []).filter((s: string) => (data.event_required_skills || []).includes(s))).length > 0 ? 
+                (data.matched_skills || (Array.isArray(data.volunteer_skills) ? data.volunteer_skills : []).filter((s: string) => (data.event_required_skills || []).includes(s))).map((s: string) => (
+                <View key={s} style={[styles.skillChip, styles.skillChipMatch]}>
+                  <Text style={styles.skillChipTextMatch}>{SKILL_ICONS[s] || '✅'} {s.replace('_', ' ')}</Text>
                 </View>
-              ))}
+              )) : (
+                <Text style={styles.noMatchText}>General Volunteer Required</Text>
+              )}
+           </View>
+        </View>
+
+        {/* Technical Score Breakdown */}
+        <View style={styles.breakdownRow}>
+          {Object.entries(data.score_breakdown || {}).map(([key, val]: any) => (
+            <View key={key} style={styles.breakdownItem}>
+              <Text style={styles.breakdownVal}>{val}%</Text>
+              <Text style={styles.breakdownLabel}>{key.replace('_pct', '').replace(/_/g, ' ')}</Text>
             </View>
-          </>
-        )}
-      </View>
+          ))}
+        </View>
 
-      {/* Score breakdown */}
-      <View style={styles.breakdownRow}>
-        {Object.entries(match.score_breakdown || {}).map(([key, val]) => (
-          <View key={key} style={styles.breakdownItem}>
-            <Text style={styles.breakdownVal}>{val}%</Text>
-            <Text style={styles.breakdownLabel}>{key.replace('_pct', '').replace(/_/g, ' ')}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* AI Reasoning Button */}
-      <TouchableOpacity style={styles.reasoningBtn} onPress={onViewReasoning}>
-        <LinearGradient colors={['#1A237E', '#3949AB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-          style={styles.reasoningBtnGradient}>
-          <Feather name="cpu" size={14} color="#fff" />
-          <Text style={styles.reasoningBtnText}>View AI Reasoning</Text>
-          <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.7)" />
-        </LinearGradient>
-      </TouchableOpacity>
-
-      {/* Action buttons (Respond to Live Match) */}
-      <View style={styles.actionRow}>
-        <TouchableOpacity
-          style={styles.declineBtn}
-          onPress={onDecline}
-          onPressIn={onPressIn}
-          onPressOut={onPressOut}
-          disabled={loading}
-        >
-          <Feather name="x" size={16} color={colors.error} />
-          <Text style={styles.declineBtnText}>Reject</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.acceptBtn}
-          onPress={onAccept}
-          onPressIn={onPressIn}
-          onPressOut={onPressOut}
-          disabled={loading}
-        >
-          <LinearGradient
-            colors={['#2E7D32', '#1B5E20']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.acceptGradient}
-          >
-            {loading
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <><Feather name="check" size={16} color="#fff" /><Text style={styles.acceptBtnText}>Join Mission</Text></>
-            }
+        {/* View AI Reasoning Button */}
+        <TouchableOpacity style={styles.reasoningBtn} onPress={onViewReasoning} disabled={loading}>
+          <LinearGradient colors={['#1A237E', '#3949AB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={styles.reasoningBtnGradient}>
+            <Feather name="cpu" size={14} color="#fff" />
+            <Text style={styles.reasoningBtnText}>View AI Reasoning</Text>
+            <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.7)" />
           </LinearGradient>
         </TouchableOpacity>
+
+        {/* Final Actions Block */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity 
+            style={styles.declineBtn} 
+            onPress={() => handleAction(onDecline)} 
+            disabled={loading}
+          >
+            <Feather name="x" size={16} color={colors.error} />
+            <Text style={styles.declineBtnText}>Reject</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.acceptBtn, isDirect && { backgroundColor: '#1A237E' }]} 
+            onPress={() => handleAction(onAccept)} 
+            disabled={loading}
+          >
+            <LinearGradient 
+              colors={isDirect ? ['#1A237E', '#283593'] : ['#2E7D32', '#1B5E20']} 
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={styles.acceptGradient}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="check" size={16} color="#fff" />
+                  <Text style={styles.acceptBtnText}>{isDirect ? 'Accept Mission' : 'Join Mission'}</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
       </View>
-    </View>
     </Animated.View>
   );
 };
@@ -566,6 +822,21 @@ const styles = StyleSheet.create({
   fillBarFill: { height: '100%', backgroundColor: colors.primaryGreen, borderRadius: 2 },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   detailText: { ...typography.captionText, flex: 1 },
+  chatIconBtn: {
+    padding: spacing.xs,
+    position: 'relative',
+  },
+  chatBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success,
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
   skillsSection: { marginTop: spacing.sm, padding: spacing.sm, backgroundColor: '#F8F9FA', borderRadius: 12 },
   skillsHeader: { fontSize: 9, fontWeight: '700' as const, color: colors.textSecondary, textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 },
   skillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
@@ -592,6 +863,19 @@ const styles = StyleSheet.create({
   directBadge: { backgroundColor: '#1A237E', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginBottom: 4 },
   directBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' as const },
   directDescription: { fontSize: 12, color: colors.textPrimary, fontStyle: 'italic', marginBottom: spacing.sm, lineHeight: 18 },
+  filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.primaryGreen + '40', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  filterBtnActive: { backgroundColor: colors.primaryGreen, borderColor: colors.primaryGreen },
+  filterBtnText: { fontSize: 12, fontWeight: '600', color: colors.primaryGreen },
+  filterBadge: { position: 'absolute', top: -6, right: -6, backgroundColor: colors.error, borderRadius: 10, width: 18, height: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },
+  filterBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  activeFiltersRow: { marginBottom: spacing.sm, maxHeight: 36 },
+  activeFilterChip: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.primaryGreen + '10', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 16, borderWidth: 1, borderColor: colors.primaryGreen + '20' },
+  activeFilterChipText: { fontSize: 11, color: colors.primaryGreen, fontWeight: '600' },
+  noResults: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
+  noResultsTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  noResultsSub: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.xl },
+  clearFiltersBtn: { marginTop: spacing.md, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.primaryGreen + '10' },
+  clearFiltersText: { color: colors.primaryGreen, fontWeight: '700' },
 });
 
 const modalStyles = StyleSheet.create({
@@ -609,4 +893,28 @@ const modalStyles = StyleSheet.create({
   reasonText: { flex: 1, fontSize: 13, color: colors.textPrimary, lineHeight: 20 },
   doneBtn: { backgroundColor: colors.primaryGreen, borderRadius: 12, padding: 14, alignItems: 'center', marginTop: spacing.md },
   doneBtnText: { color: '#fff', fontWeight: '700' as const, fontSize: 15 },
+});
+
+const filterStyles = StyleSheet.create({
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  title: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  resetText: { fontSize: 14, color: colors.error, fontWeight: '600' },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
+  thresholdContainer: { marginBottom: 20 },
+  thresholdLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: 10 },
+  thresholdOptions: { flexDirection: 'row', gap: 8 },
+  thresholdOption: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#E0E0E0', backgroundColor: '#F8F9FA' },
+  thresholdOptionActive: { backgroundColor: colors.primaryGreen + '10', borderColor: colors.primaryGreen },
+  thresholdOptionText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+  thresholdOptionTextActive: { color: colors.primaryGreen },
+  skillsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  skillChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: 'transparent' },
+  skillChipActive: { backgroundColor: colors.primaryGreen + '10', borderColor: colors.primaryGreen },
+  skillIcon: { fontSize: 14 },
+  skillName: { fontSize: 13, color: colors.textPrimary, fontWeight: '500' },
+  skillNameActive: { color: colors.primaryGreen, fontWeight: '700' },
+  footer: { padding: spacing.lg, borderTopWidth: 1, borderTopColor: '#F0F0F0', backgroundColor: '#fff' },
+  applyBtn: { borderRadius: 12, overflow: 'hidden' },
+  applyGradient: { paddingVertical: 14, alignItems: 'center' },
+  applyText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

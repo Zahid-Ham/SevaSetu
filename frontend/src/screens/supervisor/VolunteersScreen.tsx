@@ -3,11 +3,14 @@ import { ScrollView, StyleSheet, View, Text } from 'react-native';
 import { AppHeader, UserAvatar, IconButton } from '../../components';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 
+import { useNavigation } from '@react-navigation/native';
+
 export const VolunteersScreen = () => {
+  const navigation = useNavigation<any>();
   const volunteers = [
-    { id: '1', name: 'Anita Sharma', status: 'Active', zone: 'Sector 5' },
-    { id: '2', name: 'Rahul Verma', status: 'On Break', zone: 'Delhi Cantt' },
-    { id: '3', name: 'Sneha Patel', status: 'Dispatched', zone: 'Connaught Place' },
+    { id: 'vol_logistics_1', name: 'Anita Sharma', status: 'Active', zone: 'Sector 5' },
+    { id: 'vol_medical_1', name: 'Rahul Verma', status: 'On Break', zone: 'Delhi Cantt' },
+    { id: 'vol_teaching_1', name: 'Sneha Patel', status: 'Dispatched', zone: 'Connaught Place' },
   ];
 
   return (
@@ -24,7 +27,18 @@ export const VolunteersScreen = () => {
                 {v.status} • {v.zone}
               </Text>
             </View>
-            <IconButton iconName="message-square" onPress={() => {}} iconColor={colors.accentBlue} />
+            <IconButton 
+              iconName="message-square" 
+              onPress={() => navigation.navigate('Chat', {
+                volunteer_id: v.id,
+                supervisor_id: 'sup_deepak_1',
+                recipient_name: v.name,
+                volunteer_name: v.name,
+                supervisor_name: 'Deepak Chawla (Supervisor)',
+                event_name: 'General Discussion'
+              })} 
+              iconColor={colors.accentBlue} 
+            />
           </View>
         ))}
 
