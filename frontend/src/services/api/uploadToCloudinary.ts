@@ -33,15 +33,10 @@ export async function uploadToCloudinary(
   fileName: string = 'upload',
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  // Determine Cloudinary resource_type based on mime type
-  let resourceType: 'image' | 'video' | 'raw' = 'image';
-  if (fileType === 'application/pdf' || fileType.startsWith('application/')) {
-    resourceType = 'raw';
-  } else if (fileType.startsWith('video/')) {
-    resourceType = 'video';
-  }
-
-  const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`;
+  // Use 'auto' for everything — Cloudinary will detect the type correctly.
+  // Using explicit 'raw' for PDFs causes "blocked for delivery" on free/untrusted accounts.
+  // 'auto' correctly handles images, videos, and PDFs without delivery restrictions.
+  const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
 
   const formData = new FormData();
   formData.append('file', {
@@ -50,23 +45,26 @@ export async function uploadToCloudinary(
     name: fileName,
   } as any);
   formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  formData.append('folder', 'sevasetu/chat'); // Organise uploads in a folder
+  formData.append('folder', 'sevasetu/chat');
+  // Force public delivery — prevents "Blocked for delivery" on free accounts
+  formData.append('access_mode', 'public');
 
   try {
+    // NOTE: Do NOT set Content-Type header manually with FormData.
+    // React Native's fetch will automatically set the correct multipart/form-data boundary.
     const response = await fetch(uploadUrl, {
       method: 'POST',
       body: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || 'Upload failed');
+      console.error('[Cloudinary Upload Error]', data);
+      throw new Error(data.error?.message || `Upload failed with status ${response.status}`);
     }
 
-    const data = await response.json();
+    console.log('[Cloudinary Upload Success]', data.secure_url);
 
     return {
       url: data.secure_url,
