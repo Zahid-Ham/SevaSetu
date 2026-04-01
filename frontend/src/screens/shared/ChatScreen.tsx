@@ -13,16 +13,21 @@ import {
   ScrollView,
   Alert,
   Keyboard,
+  Image,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useChatStore } from '../../services/store/useChatStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
 import { useEventStore } from '../../services/store/useEventStore';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { UserAvatar, IconButton, GradientBackground } from '../../components';
+import { uploadToCloudinary, formatFileSize } from '../../services/api/uploadToCloudinary';
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -93,6 +98,55 @@ const ContextCard = ({ message, isSelf, role }: { message: any; isSelf: boolean;
   );
 };
 
+// ── Image Bubble ─────────────────────────────────────────────────────────────
+
+const ImageBubble = ({ message, isSelf, onLongPress }: { message: any; isSelf: boolean; onLongPress?: (m: any) => void }) => (
+  <TouchableOpacity
+    activeOpacity={0.9}
+    onLongPress={() => onLongPress?.(message)}
+    style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
+  >
+    <Image
+      source={{ uri: message.file_url }}
+      style={styles.imageBubble}
+      resizeMode="cover"
+    />
+    <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
+      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+    </Text>
+  </TouchableOpacity>
+);
+
+// ── PDF/Document Bubble ───────────────────────────────────────────────────────
+
+const PdfBubble = ({ message, isSelf, onLongPress }: { message: any; isSelf: boolean; onLongPress?: (m: any) => void }) => (
+  <TouchableOpacity
+    activeOpacity={0.8}
+    onLongPress={() => onLongPress?.(message)}
+    onPress={() => message.file_url && Linking.openURL(message.file_url)}
+    style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
+  >
+    <View style={[styles.pdfBubble, isSelf ? styles.pdfBubbleSelf : styles.pdfBubbleOther]}>
+      {isSelf && <LinearGradient colors={['#1B5E20', '#2E7D32']} style={StyleSheet.absoluteFill} />}
+      <View style={styles.pdfIcon}>
+        <Feather name="file-text" size={24} color={isSelf ? '#fff' : colors.primaryGreen} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.pdfName, { color: isSelf ? '#fff' : colors.textPrimary }]} numberOfLines={1}>
+          {message.file_name || 'Document'}
+        </Text>
+        <Text style={[styles.pdfSize, { color: isSelf ? '#A5D6A7' : colors.textSecondary }]}>
+          {message.file_size ? formatFileSize(message.file_size) : 'PDF'} • Tap to open
+        </Text>
+      </View>
+      <Feather name="external-link" size={16} color={isSelf ? '#A5D6A7' : colors.primaryGreen} />
+    </View>
+    <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
+      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+    </Text>
+  </TouchableOpacity>
+);
+
 const MessageBubble = ({ 
   message, 
   isSelf, 
@@ -120,6 +174,14 @@ const MessageBubble = ({
         </Text>
       </TouchableOpacity>
     );
+  }
+
+  // ── Media Bubbles ──
+  if (message.type === 'image' && message.file_url && !isDeleted) {
+    return <ImageBubble message={message} isSelf={isSelf} onLongPress={onLongPress} />;
+  }
+  if (message.type === 'pdf' && message.file_url && !isDeleted) {
+    return <PdfBubble message={message} isSelf={isSelf} onLongPress={onLongPress} />;
   }
 
   return (
@@ -193,6 +255,9 @@ export const ChatScreen = () => {
   const [showSummary, setShowSummary] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   const flatListRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
 
@@ -244,6 +309,83 @@ export const ChatScreen = () => {
       event_name: event_name,
     });
     setInputText('');
+  };
+
+  const handleAttachMedia = async (mediaType: 'image' | 'camera' | 'document') => {
+    setShowMediaPicker(false);
+    
+    try {
+      let fileUri = '';
+      let fileType = '';
+      let fileName = '';
+      let fileSize = 0;
+      let msgType: 'image' | 'pdf' = 'image';
+
+      if (mediaType === 'image') {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+          allowsEditing: false,
+        });
+        if (result.canceled || !result.assets?.[0]) return;
+        const asset = result.assets[0];
+        fileUri = asset.uri;
+        fileType = asset.mimeType || 'image/jpeg';
+        fileName = asset.fileName || `image_${Date.now()}.jpg`;
+        fileSize = asset.fileSize || 0;
+        msgType = 'image';
+      } else if (mediaType === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) { Alert.alert('Permission needed', 'Camera access is required.'); return; }
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+        if (result.canceled || !result.assets?.[0]) return;
+        const asset = result.assets[0];
+        fileUri = asset.uri;
+        fileType = asset.mimeType || 'image/jpeg';
+        fileName = asset.fileName || `photo_${Date.now()}.jpg`;
+        fileSize = asset.fileSize || 0;
+        msgType = 'image';
+      } else if (mediaType === 'document') {
+        const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf' });
+        if (result.canceled || !result.assets?.[0]) return;
+        const asset = result.assets[0];
+        fileUri = asset.uri;
+        fileType = asset.mimeType || 'application/pdf';
+        fileName = asset.name || `document_${Date.now()}.pdf`;
+        fileSize = asset.size || 0;
+        msgType = 'pdf';
+      }
+
+      setUploading(true);
+      setUploadProgress('Uploading...');
+      
+      const uploaded = await uploadToCloudinary(fileUri, fileType, fileName);
+
+      setUploadProgress('Sending...');
+      await sendMessage({
+        volunteer_id,
+        supervisor_id,
+        event_id,
+        sender_id: currentUserId,
+        text: '',
+        volunteer_name: isSupervisor ? recipient_name : myName,
+        supervisor_name: isSupervisor ? myName : recipient_name,
+        event_name: event_name,
+        type: msgType,
+        file_url: uploaded.url,
+        file_type: fileType,
+        file_name: fileName,
+        file_size: fileSize,
+      });
+    } catch (e: any) {
+      Alert.alert('Upload Failed', e.message || 'Something went wrong. Please try again.');
+    } finally {
+      setUploading(false);
+      setUploadProgress('');
+    }
   };
 
   const handleAttachContext = () => {
@@ -394,12 +536,16 @@ export const ChatScreen = () => {
         styles.inputArea, 
         { paddingBottom: isKeyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm) }
       ]}>
+        {uploading && (
+          <View style={styles.uploadingBar}>
+            <ActivityIndicator size="small" color={colors.primaryGreen} />
+            <Text style={styles.uploadingText}>{uploadProgress}</Text>
+          </View>
+        )}
         <View style={styles.inputContainer}>
-          {isSupervisor && (
-            <TouchableOpacity style={styles.attachBtn} onPress={handleAttachContext}>
-              <Feather name="paperclip" size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.attachBtn} onPress={() => setShowMediaPicker(true)}>
+            <Feather name="paperclip" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
           <TextInput
             style={styles.input}
             placeholder="Type a message..."
@@ -418,6 +564,46 @@ export const ChatScreen = () => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Media Picker Action Sheet */}
+      <Modal visible={showMediaPicker} transparent animationType="slide" onRequestClose={() => setShowMediaPicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMediaPicker(false)}>
+          <View style={styles.mediaPickerSheet}>
+            <View style={styles.mediaPickerHandle} />
+            <Text style={styles.mediaPickerTitle}>Share File</Text>
+            <TouchableOpacity style={styles.mediaPickerOption} onPress={() => handleAttachMedia('image')}>
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#E3F2FD' }]}>
+                <Feather name="image" size={22} color="#1565C0" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>Photo from Gallery</Text>
+                <Text style={styles.mediaPickerDesc}>Share an image from your photos</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.mediaPickerOption} onPress={() => handleAttachMedia('camera')}>
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#E8F5E9' }]}>
+                <Feather name="camera" size={22} color="#2E7D32" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>Take a Photo</Text>
+                <Text style={styles.mediaPickerDesc}>Open camera to capture an image</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.mediaPickerOption} onPress={() => handleAttachMedia('document')}>
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#FFF3E0' }]}>
+                <Feather name="file-text" size={22} color="#E65100" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>PDF Document</Text>
+                <Text style={styles.mediaPickerDesc}>Share a PDF file</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.mediaPickerCancel} onPress={() => setShowMediaPicker(false)}>
+              <Text style={styles.mediaPickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* AI Summary Modal */}
       <Modal visible={showSummary} transparent animationType="fade">
@@ -943,5 +1129,123 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     opacity: 0.7,
+  },
+  // ── Image Bubble
+  imageBubble: {
+    width: 220,
+    height: 180,
+    borderRadius: 16,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  // ── PDF Bubble
+  pdfBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    padding: 14,
+    overflow: 'hidden',
+    maxWidth: 260,
+  },
+  pdfBubbleSelf: {
+    backgroundColor: '#1B5E20',
+  },
+  pdfBubbleOther: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  pdfIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  pdfName: {
+    fontSize: 13,
+    fontWeight: '700',
+    maxWidth: 160,
+  },
+  pdfSize: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  // ── Uploading indicator
+  uploadingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    backgroundColor: colors.primaryGreen + '15',
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  uploadingText: {
+    fontSize: 13,
+    color: colors.primaryGreen,
+    fontWeight: '600',
+  },
+  // ── Media Picker Sheet
+  mediaPickerSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: spacing.xl,
+    paddingBottom: 36,
+  },
+  mediaPickerHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  mediaPickerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginBottom: 12,
+  },
+  mediaPickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  mediaPickerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mediaPickerLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  mediaPickerDesc: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  mediaPickerCancel: {
+    marginTop: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 14,
+  },
+  mediaPickerCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
 });

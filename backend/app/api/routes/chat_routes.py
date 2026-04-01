@@ -77,8 +77,13 @@ class SendMessageRequest(BaseModel):
     volunteer_name: Optional[str] = None
     supervisor_name: Optional[str] = None
     event_name: Optional[str] = None
-    type: str = "text" # text | event_attachment
+    type: str = "text" # text | image | pdf | video | event_attachment
     metadata: Optional[dict] = None
+    # Media fields for file sharing
+    file_url: Optional[str] = None
+    file_type: Optional[str] = None  # e.g. 'image/jpeg', 'application/pdf'
+    file_name: Optional[str] = None  # original filename
+    file_size: Optional[int] = None  # bytes
 
 def get_room_id(v_id: str, s_id: str, e_id: Optional[str]) -> str:
     # Deterministic room ID based on participants and event context
@@ -105,6 +110,15 @@ async def send_message(req: SendMessageRequest):
         "deleted": False,
         "deleted_by": [],
     }
+    # Include media fields if present
+    if req.file_url:
+        msg_data["file_url"] = req.file_url
+    if req.file_type:
+        msg_data["file_type"] = req.file_type
+    if req.file_name:
+        msg_data["file_name"] = req.file_name
+    if req.file_size:
+        msg_data["file_size"] = req.file_size
     if req.metadata:
         msg_data["metadata"] = req.metadata
 
@@ -114,7 +128,13 @@ async def send_message(req: SendMessageRequest):
         "volunteer_id": req.volunteer_id,
         "supervisor_id": req.supervisor_id,
         "event_id": req.event_id,
-        "last_message": req.text,
+        # Show a meaningful last_message preview for media
+        "last_message": (
+            "📷 Image" if req.type == "image"
+            else "📄 Document" if req.type == "pdf"
+            else "🎥 Video" if req.type == "video"
+            else req.text
+        ),
         "last_sender_id": req.sender_id,
         "updated_at": firestore.SERVER_TIMESTAMP,
         "participants": [req.volunteer_id, req.supervisor_id],

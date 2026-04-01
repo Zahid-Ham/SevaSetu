@@ -127,11 +127,16 @@ export interface ChatMessage {
   id: string;
   sender_id: string;
   text: string;
-  type: 'text' | 'event_attachment';
+  type: 'text' | 'event_attachment' | 'image' | 'pdf' | 'video';
   timestamp: string;
   metadata?: any;
   deleted?: boolean;
   deleted_by?: string[];
+  // Media fields
+  file_url?: string;
+  file_type?: string;  // MIME type e.g. 'image/jpeg', 'application/pdf'
+  file_name?: string;  // Original filename for display
+  file_size?: number;  // Size in bytes
 }
 
 export interface ChatRoom {
@@ -365,6 +370,11 @@ export async function sendMessage(payload: {
   event_name?: string;
   type?: string;
   metadata?: any;
+  // Media
+  file_url?: string;
+  file_type?: string;
+  file_name?: string;
+  file_size?: number;
 }): Promise<{ room_id: string }> {
   return await apiFetch('/chat/send', {
     method: 'POST',

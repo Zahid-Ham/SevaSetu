@@ -27,6 +27,11 @@ interface ChatState {
     event_name?: string;
     type?: string;
     metadata?: any;
+    // Media
+    file_url?: string;
+    file_type?: string;
+    file_name?: string;
+    file_size?: number;
   }) => Promise<void>;
   
   // Real-time Simulation (Polling)
