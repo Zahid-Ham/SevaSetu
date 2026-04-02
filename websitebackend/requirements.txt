@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+firebase-admin
+python-dotenv
+google-genai
+requests
+cloudinary
