@@ -37,72 +37,88 @@ except ImportError:
 router = APIRouter()
 
 @router.get("/chat/serve-file")
-async def serve_file(public_id: str):
+async def serve_file(
+    public_id: str, 
+    transformation: str = None, 
+    extension: str = None
+):
     """
     SERVER-SIDE PROXY: Downloads a file stored in Cloudinary and streams it to the client.
-    Bypasses the CDN delivery block on untrusted accounts by using the authenticated admin API.
+    Supports Cloudinary Transformations (e.g., t=so_0 for video thumbnails).
     """
     if not CLOUDINARY_AVAILABLE:
         raise HTTPException(status_code=503, detail="Cloudinary SDK not available")
 
-    print(f"[Serve File] Request for public_id={public_id}")
+    print(f"[Serve File] Request for public_id={public_id}, t={transformation}, ext={extension}")
     
-    # Try raw first (newly uploaded), then image (older uploads)
+    # Determine media type based on extension or override
+    import mimetypes
+    target_path = f"{public_id}.{extension}" if extension else public_id
+    media_type, _ = mimetypes.guess_type(target_path)
+    
+    if not media_type:
+        if target_path.lower().endswith('.pdf'):
+            media_type = "application/pdf"
+        elif target_path.lower().endswith(('.mp4', '.mov')):
+            media_type = "video/mp4"
+        elif target_path.lower().endswith(('.m4a', '.mp3', '.wav')):
+            media_type = "audio/mpeg"
+        elif target_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            media_type = "image/jpeg"
+        else:
+            media_type = "application/octet-stream"
+
+    # Try raw, image, then video (Resource types in Cloudinary)
     last_error = None
-    for r_type in ["raw", "image"]:
+    for r_type in ["raw", "image", "video"]:
         try:
             # private_download_url hits api.cloudinary.com (not the blocked CDN res.cloudinary.com)
-            # type="upload" is REQUIRED: our files are type=upload (default). Without this,
-            # Cloudinary searches for type=private resources and returns "Resource not found".
-            # format=None: for raw resources, public_id already contains the extension (.pdf).
-            # Passing format="pdf" would cause Cloudinary to double-append the extension.
             download_url = cloudinary.utils.private_download_url(
                 public_id,
-                None,              # None → not included in signed params → no extension duplication
+                extension,              # Extension override (convert video to jpg)
                 resource_type=r_type,
-                type="upload",    # CRITICAL: our files are type=upload, not type=private
-                expires_at=int(time.time()) + 600,
+                type="upload",
+                expires_at=int(time.time()) + 3600, # 1 hour expiry
                 attachment=False,
+                transformation=transformation,      # Apply transformation (e.g. so_0)
             )
 
-            print(f"[Serve File] Trying r_type={r_type} → {download_url[:120]}...")
-            resp = http_requests.get(download_url, stream=True, timeout=30)
-            print(f"[Serve File] Cloudinary response: {resp.status_code}")
-
+            print(f"[Serve File] Trying r_type={r_type} → {download_url[:100]}...")
+            resp = http_requests.get(download_url, stream=True, timeout=60)
+            
             if resp.status_code == 200:
+                print(f"[Serve File] SUCCESS with r_type={r_type}")
                 filename = public_id.split("/")[-1]
-                if not filename.endswith(".pdf"):
-                    filename += ".pdf"
+                if extension:
+                    filename = f"{filename}.{extension}"
 
                 def make_streamer(response):
                     def _stream():
-                        for chunk in response.iter_content(chunk_size=8192):
+                        for chunk in response.iter_content(chunk_size=16384): 
                             yield chunk
                     return _stream
 
                 return StreamingResponse(
                     make_streamer(resp)(),
-                    media_type="application/pdf",
+                    media_type=media_type,
                     headers={
                         "Content-Disposition": f'inline; filename="{filename}"',
-                        "Cache-Control": "no-cache",
+                        "Cache-Control": "public, max-age=3600",
                         "Access-Control-Allow-Origin": "*",
                     }
                 )
             else:
-                body = resp.text[:300]
-                last_error = f"r_type={r_type} → HTTP {resp.status_code}: {body}"
-                print(f"[Serve File] FAILED r_type={r_type}: {resp.status_code} — {body[:150]}")
+                body = resp.text[:200]
+                last_error = f"HTTP {resp.status_code}: {body}"
                 continue
 
         except Exception as e:
             last_error = str(e)
-            print(f"[Serve File] EXCEPTION r_type={r_type}: {e}")
             continue
 
     raise HTTPException(
         status_code=404,
-        detail=f"Could not fetch file from Cloudinary. Last error: {last_error}"
+        detail=f"Could not fetch media. Last error: {last_error}"
     )
 
 # Keep old signed-url endpoint for backward compatibility but it's no longer used
