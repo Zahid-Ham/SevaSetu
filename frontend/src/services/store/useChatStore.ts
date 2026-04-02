@@ -32,6 +32,9 @@ interface ChatState {
     file_type?: string;
     file_name?: string;
     file_size?: number;
+    file_public_id?: string;
+    file_version?: string;
+    file_extension?: string;
   }) => Promise<void>;
   
   // Real-time Simulation (Polling)

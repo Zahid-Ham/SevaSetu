@@ -1,8 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
 import google.generativeai as genai
+import cloudinary
+import cloudinary.uploader
+import cloudinary.utils
 import os
+import time
 from dotenv import load_dotenv
 
 from app.config.firebase_config import db # type: ignore
@@ -10,7 +14,58 @@ from firebase_admin import firestore
 
 load_dotenv()
 
+# Try to import cloudinary — if not installed, upload endpoint returns a clear error
+try:
+    import cloudinary
+    import cloudinary.uploader
+    import cloudinary.utils
+    cloudinary.config(
+        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+        api_key=os.getenv("CLOUDINARY_API_KEY"),
+        api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+        secure=True
+    )
+    CLOUDINARY_AVAILABLE = True
+    print("[Chat Routes] Cloudinary configured successfully.")
+except ImportError:
+    CLOUDINARY_AVAILABLE = False
+    print("[Chat Routes] WARNING: cloudinary package not installed. PDF uploads will be unavailable.")
+
 router = APIRouter()
+
+@router.get("/chat/get-signed-url")
+async def get_signed_url(public_id: str, version: Optional[str] = None, extension: Optional[str] = None):
+    """
+    Generates a signed, authenticated URL for a Cloudinary resource.
+    We first try 'image' (since 'auto' uploads PDFs as images on free accounts)
+    and fallback to 'raw'.
+    """
+    if not CLOUDINARY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Cloudinary SDK not available")
+        
+    # We don't know for sure if it's 'image' or 'raw' but 'auto' doesn't work for signing.
+    r_types = ["image", "raw"]
+    
+    for r_type in r_types:
+        try:
+            # Construct options for cloudinary_url
+            options = {
+                "resource_type": r_type,
+                "sign_url": True,
+                "expires_at": int(time.time()) + 3600,
+                "secure": True
+            }
+            if version:
+                options["version"] = version
+            if extension:
+                options["format"] = extension
+                
+            url = cloudinary.utils.cloudinary_url(public_id, **options)[0]
+            return {"url": url}
+        except Exception:
+            continue
+            
+    raise HTTPException(status_code=500, detail="Could not generate signed URL")
 
 # Configure Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -66,6 +121,48 @@ Keep it professional and brief.
         print(f"[Chat Summary Error] {e}")
         raise HTTPException(status_code=500, detail="Failed to generate AI summary.")
 
+# ── File Upload (Signed — for PDFs and documents) ───────────────────────────
+
+@router.post("/chat/upload-file")
+async def upload_file(file: UploadFile = File(...)):
+    """
+    Uploads a file (PDF, image) to Cloudinary using a SIGNED upload.
+    Signed uploads allow setting access_mode=public, which is required
+    to make raw files (PDFs) publicly accessible on free Cloudinary accounts.
+    The frontend cannot do this directly because unsigned uploads don't allow access_mode.
+    """
+    if not CLOUDINARY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Cloudinary SDK not installed on server. Run: pip install cloudinary"
+        )
+    try:
+        file_bytes = await file.read()
+        
+        result = cloudinary.uploader.upload(
+            file_bytes,
+            resource_type="auto",       # Let Cloudinary decide (requested by user)
+            folder="sevasetu/chat",
+            access_mode="public",        # KEY: makes the file publicly accessible
+            use_filename=True,
+            unique_filename=True,
+            overwrite=False,
+            filename_override=file.filename,
+        )
+        
+        return {
+            "success": True,
+            "url": result["secure_url"],
+            "public_id": result["public_id"],
+            "resource_type": result["resource_type"],
+            "version": str(result.get("version", "")),
+            "format": result.get("format", ""),
+            "bytes": result.get("bytes", 0),
+        }
+    except Exception as e:
+        print(f"[Upload File Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Message Handling ────────────────────────────────────────────────────────
 
 class SendMessageRequest(BaseModel):
@@ -84,6 +181,9 @@ class SendMessageRequest(BaseModel):
     file_type: Optional[str] = None  # e.g. 'image/jpeg', 'application/pdf'
     file_name: Optional[str] = None  # original filename
     file_size: Optional[int] = None  # bytes
+    file_public_id: Optional[str] = None # Cloudinary public ID
+    file_version: Optional[str] = None   # Cloudinary version (v...)
+    file_extension: Optional[str] = None # Cloudinary format (pdf, jpg...)
 
 def get_room_id(v_id: str, s_id: str, e_id: Optional[str]) -> str:
     # Deterministic room ID based on participants and event context
@@ -119,6 +219,12 @@ async def send_message(req: SendMessageRequest):
         msg_data["file_name"] = req.file_name
     if req.file_size:
         msg_data["file_size"] = req.file_size
+    if req.file_public_id:
+        msg_data["file_public_id"] = req.file_public_id
+    if req.file_version:
+        msg_data["file_version"] = req.file_version
+    if req.file_extension:
+        msg_data["file_extension"] = req.file_extension
     if req.metadata:
         msg_data["metadata"] = req.metadata
 

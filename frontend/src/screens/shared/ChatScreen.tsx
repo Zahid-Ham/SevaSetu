@@ -27,7 +27,8 @@ import { useAuthStore } from '../../services/store/useAuthStore';
 import { useEventStore } from '../../services/store/useEventStore';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { UserAvatar, IconButton, GradientBackground } from '../../components';
-import { uploadToCloudinary, formatFileSize } from '../../services/api/uploadToCloudinary';
+import { uploadToCloudinary, uploadPdfViaBackend, formatFileSize } from '../../services/api/uploadToCloudinary';
+import { API_BASE_URL } from '../../config/apiConfig';
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -119,11 +120,21 @@ const ImageBubble = ({ message, isSelf, onLongPress }: { message: any; isSelf: b
 
 // ── PDF/Document Bubble ───────────────────────────────────────────────────────
 
-const PdfBubble = ({ message, isSelf, onLongPress }: { message: any; isSelf: boolean; onLongPress?: (m: any) => void }) => (
+const PdfBubble = ({ 
+  message, 
+  isSelf, 
+  onLongPress,
+  onOpenPdf 
+}: { 
+  message: any; 
+  isSelf: boolean; 
+  onLongPress?: (m: any) => void;
+  onOpenPdf?: (m: any) => void;
+}) => (
   <TouchableOpacity
     activeOpacity={0.8}
     onLongPress={() => onLongPress?.(message)}
-    onPress={() => message.file_url && Linking.openURL(message.file_url)}
+    onPress={() => onOpenPdf ? onOpenPdf(message) : (message.file_url && Linking.openURL(message.file_url))}
     style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
   >
     <View style={[styles.pdfBubble, isSelf ? styles.pdfBubbleSelf : styles.pdfBubbleOther]}>
@@ -151,12 +162,14 @@ const MessageBubble = ({
   message, 
   isSelf, 
   role, 
-  onLongPress 
+  onLongPress,
+  onOpenPdf
 }: { 
   message: any; 
   isSelf: boolean; 
   role: string;
   onLongPress?: (msg: any) => void;
+  onOpenPdf?: (msg: any) => void;
 }) => {
   const isAttachment = message.type === 'event_attachment';
   const isDeleted = message.deleted;
@@ -181,7 +194,7 @@ const MessageBubble = ({
     return <ImageBubble message={message} isSelf={isSelf} onLongPress={onLongPress} />;
   }
   if (message.type === 'pdf' && message.file_url && !isDeleted) {
-    return <PdfBubble message={message} isSelf={isSelf} onLongPress={onLongPress} />;
+    return <PdfBubble message={message} isSelf={isSelf} onLongPress={onLongPress} onOpenPdf={onOpenPdf} />;
   }
 
   return (
@@ -362,7 +375,14 @@ export const ChatScreen = () => {
       setUploading(true);
       setUploadProgress('Uploading...');
       
-      const uploaded = await uploadToCloudinary(fileUri, fileType, fileName);
+      let uploaded;
+      if (msgType === 'pdf') {
+        // PDFs go through the backend (signed Cloudinary upload) to ensure public access
+        uploaded = await uploadPdfViaBackend(fileUri, fileName, fileType, API_BASE_URL);
+      } else {
+        // Images upload directly to Cloudinary (unsigned upload works fine)
+        uploaded = await uploadToCloudinary(fileUri, fileType, fileName);
+      }
 
       setUploadProgress('Sending...');
       await sendMessage({
@@ -379,6 +399,9 @@ export const ChatScreen = () => {
         file_type: fileType,
         file_name: fileName,
         file_size: fileSize,
+        file_public_id: uploaded.publicId,
+        file_version: uploaded.version,
+        file_extension: uploaded.format,
       });
     } catch (e: any) {
       Alert.alert('Upload Failed', e.message || 'Something went wrong. Please try again.');
@@ -444,6 +467,42 @@ export const ChatScreen = () => {
     );
   };
 
+  const handleOpenPdf = async (msg: any) => {
+    if (!msg.file_url) return;
+    
+    // If we have a public ID, get a signed URL to bypass "untrusted" block
+    if (msg.file_public_id) {
+      try {
+        setUploading(true);
+        setUploadProgress('Authorizing access...');
+        
+        const params = new URLSearchParams({
+          public_id: msg.file_public_id,
+        });
+        if (msg.file_version) params.append('version', msg.file_version);
+        if (msg.file_extension) params.append('extension', msg.file_extension);
+        
+        const res = await fetch(`${API_BASE_URL}/chat/get-signed-url?${params.toString()}`);
+        const data = await res.json();
+        
+        if (data.url) {
+          Linking.openURL(data.url);
+        } else {
+          Linking.openURL(msg.file_url);
+        }
+      } catch (e) {
+        console.warn('[ChatScreen] Failed to get signed URL, falling back to direct:', e);
+        Linking.openURL(msg.file_url);
+      } finally {
+        setUploading(false);
+        setUploadProgress('');
+      }
+    } else {
+      // Fallback for old messages without public_id
+      Linking.openURL(msg.file_url);
+    }
+  };
+
   const showContextSuggestion = event_id && messages.length < 5 && !messages.some(m => m.type === 'event_attachment');
 
   return (
@@ -507,6 +566,7 @@ export const ChatScreen = () => {
               isSelf={item.sender_id === currentUserId} 
               role={role!} 
               onLongPress={handleLongPress}
+              onOpenPdf={handleOpenPdf}
             />
           )}
           contentContainerStyle={styles.messageList}

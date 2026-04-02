@@ -137,6 +137,9 @@ export interface ChatMessage {
   file_type?: string;  // MIME type e.g. 'image/jpeg', 'application/pdf'
   file_name?: string;  // Original filename for display
   file_size?: number;  // Size in bytes
+  file_public_id?: string; // Cloudinary public ID for signed URL generation
+  file_version?: string;   // Cloudinary version (v17...)
+  file_extension?: string; // Cloudinary format (pdf, jpg, etc.)
 }
 
 export interface ChatRoom {
@@ -375,6 +378,9 @@ export async function sendMessage(payload: {
   file_type?: string;
   file_name?: string;
   file_size?: number;
+  file_public_id?: string;
+  file_version?: string;
+  file_extension?: string;
 }): Promise<{ room_id: string }> {
   return await apiFetch('/chat/send', {
     method: 'POST',

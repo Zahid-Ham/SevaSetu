@@ -16,6 +16,7 @@ export type UploadResult = {
   resourceType: 'image' | 'video' | 'raw'; // raw = PDFs and other documents
   format: string;
   bytes: number;
+  version?: string;  // Added
 };
 
 /**
@@ -25,17 +26,14 @@ export type UploadResult = {
  * @param fileUri - Local URI from expo-image-picker or expo-document-picker
  * @param fileType - MIME type e.g. 'image/jpeg', 'application/pdf'
  * @param fileName - Optional filename for display
- * @param onProgress - Optional progress callback (0–100)
  */
 export async function uploadToCloudinary(
   fileUri: string,
   fileType: string,
   fileName: string = 'upload',
-  onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  // Use 'auto' for everything — Cloudinary will detect the type correctly.
-  // Using explicit 'raw' for PDFs causes "blocked for delivery" on free/untrusted accounts.
-  // 'auto' correctly handles images, videos, and PDFs without delivery restrictions.
+  // Use 'auto' for images/videos — direct unsigned upload works fine.
+  // PDFs must go through the backend (signed upload) — use uploadPdfViaBackend() instead.
   const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
 
   const formData = new FormData();
@@ -46,37 +44,73 @@ export async function uploadToCloudinary(
   } as any);
   formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
   formData.append('folder', 'sevasetu/chat');
-  // Force public delivery — prevents "Blocked for delivery" on free accounts
-  formData.append('access_mode', 'public');
+  // NOTE: Do NOT add access_mode here — it's NOT allowed for unsigned uploads.
+  // access_mode is set on the backend for signed (PDF) uploads.
 
-  try {
-    // NOTE: Do NOT set Content-Type header manually with FormData.
-    // React Native's fetch will automatically set the correct multipart/form-data boundary.
-    const response = await fetch(uploadUrl, {
-      method: 'POST',
-      body: formData,
-    });
+  const response = await fetch(uploadUrl, {
+    method: 'POST',
+    body: formData,
+  });
 
-    const data = await response.json();
+  const data = await response.json();
 
-    if (!response.ok) {
-      console.error('[Cloudinary Upload Error]', data);
-      throw new Error(data.error?.message || `Upload failed with status ${response.status}`);
-    }
-
-    console.log('[Cloudinary Upload Success]', data.secure_url);
-
-    return {
-      url: data.secure_url,
-      publicId: data.public_id,
-      resourceType: data.resource_type,
-      format: data.format,
-      bytes: data.bytes,
-    };
-  } catch (error: any) {
-    console.error('[Cloudinary Upload Error]', error);
-    throw new Error(error.message || 'Failed to upload file');
+  if (!response.ok) {
+    console.error('[Cloudinary Direct Upload Error]', data);
+    throw new Error(data.error?.message || `Upload failed (${response.status})`);
   }
+
+  console.log('[Cloudinary Upload Success]', data.secure_url);
+
+  return {
+    url: data.secure_url,
+    publicId: data.public_id,
+    resourceType: data.resource_type,
+    format: data.format,
+    bytes: data.bytes,
+    version: data.version ? String(data.version) : undefined,
+  };
+}
+
+/**
+ * Upload a PDF via the SevaSetu backend.
+ * The backend uses a SIGNED Cloudinary upload with access_mode=public,
+ * bypassing the unsigned upload restriction on free Cloudinary accounts.
+ */
+export async function uploadPdfViaBackend(
+  fileUri: string,
+  fileName: string,
+  fileType: string,
+  apiBaseUrl: string,
+): Promise<UploadResult> {
+  const formData = new FormData();
+  formData.append('file', {
+    uri: fileUri,
+    type: fileType,
+    name: fileName,
+  } as any);
+
+  const response = await fetch(`${apiBaseUrl}/chat/upload-file`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error('[Backend PDF Upload Error]', data);
+    throw new Error(data.detail || `Upload failed (${response.status})`);
+  }
+
+  console.log('[Backend PDF Upload Success]', data.url);
+
+  return {
+    url: data.url,
+    publicId: data.public_id,
+    resourceType: 'raw',
+    format: data.format || 'pdf',
+    bytes: data.bytes || 0,
+    version: data.version ? String(data.version) : undefined,
+  };
 }
 
 /**
