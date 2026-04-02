@@ -103,6 +103,22 @@ We have built specialized scripts to maintain and stress-test the AI engine:
 
 ---
 
+## 🌐 Website Platform (Admin & Portfolio)
+
+In addition to the mobile app, SevaSetu includes a web-based dashboard and portfolio system.
+
+### 1. Website Backend
+- **Location**: `websitebackend/`
+- **Tech Stack**: FastAPI, Firebase Admin SDK, Cloudinary.
+- **Setup**: See [websitebackend/README.md](file:///c:/Users/ZAHID/Desktop/SevaSetu/websitebackend/README.md) for detailed environment configuration.
+
+### 2. Website Frontend
+- **Location**: `websitefrontend/`
+- **Tech Stack**: React + Vite, Tailwind CSS.
+- **Setup**: See [websitefrontend/README.md](file:///c:/Users/ZAHID/Desktop/SevaSetu/websitefrontend/README.md) for environment configuration (Vite prefix required).
+
+---
+
 ## 🛠 Core Features
 - **Animated Navigation**: Premium Reanimated-powered tab bar.
 - **Scan & Survey**: OCR + Gemini Vision for automatic form extraction with **Native Cropping**.
