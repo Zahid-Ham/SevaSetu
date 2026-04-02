@@ -468,35 +468,16 @@ export const ChatScreen = () => {
   };
 
   const handleOpenPdf = async (msg: any) => {
-    if (!msg.file_url) return;
+    if (!msg.file_url && !msg.file_public_id) return;
     
-    // If we have a public ID, get a signed URL to bypass "untrusted" block
+    // Use our backend proxy to fetch and stream the file.
+    // This is the ONLY approach that works on "untrusted" Cloudinary accounts
+    // where CDN delivery (and even signed URLs) are blocked at the account level.
     if (msg.file_public_id) {
-      try {
-        setUploading(true);
-        setUploadProgress('Authorizing access...');
-        
-        const params = new URLSearchParams({
-          public_id: msg.file_public_id,
-        });
-        if (msg.file_version) params.append('version', msg.file_version);
-        if (msg.file_extension) params.append('extension', msg.file_extension);
-        
-        const res = await fetch(`${API_BASE_URL}/chat/get-signed-url?${params.toString()}`);
-        const data = await res.json();
-        
-        if (data.url) {
-          Linking.openURL(data.url);
-        } else {
-          Linking.openURL(msg.file_url);
-        }
-      } catch (e) {
-        console.warn('[ChatScreen] Failed to get signed URL, falling back to direct:', e);
-        Linking.openURL(msg.file_url);
-      } finally {
-        setUploading(false);
-        setUploadProgress('');
-      }
+      const params = new URLSearchParams({ public_id: msg.file_public_id });
+      const proxyUrl = `${API_BASE_URL}/chat/serve-file?${params.toString()}`;
+      console.log('[ChatScreen] Opening via backend proxy:', proxyUrl);
+      Linking.openURL(proxyUrl);
     } else {
       // Fallback for old messages without public_id
       Linking.openURL(msg.file_url);

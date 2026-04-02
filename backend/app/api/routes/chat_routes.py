@@ -1,12 +1,15 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import google.generativeai as genai
 import cloudinary
 import cloudinary.uploader
 import cloudinary.utils
+import cloudinary.api
 import os
 import time
+import requests as http_requests
 from dotenv import load_dotenv
 
 from app.config.firebase_config import db # type: ignore
@@ -33,38 +36,90 @@ except ImportError:
 
 router = APIRouter()
 
-@router.get("/chat/get-signed-url")
-async def get_signed_url(public_id: str, version: Optional[str] = None, extension: Optional[str] = None):
+@router.get("/chat/serve-file")
+async def serve_file(public_id: str):
     """
-    Generates a signed, authenticated URL for a Cloudinary resource.
-    We first try 'image' (since 'auto' uploads PDFs as images on free accounts)
-    and fallback to 'raw'.
+    SERVER-SIDE PROXY: Downloads a file stored in Cloudinary and streams it to the client.
+    Bypasses the CDN delivery block on untrusted accounts by using the authenticated admin API.
     """
     if not CLOUDINARY_AVAILABLE:
         raise HTTPException(status_code=503, detail="Cloudinary SDK not available")
-        
-    # We don't know for sure if it's 'image' or 'raw' but 'auto' doesn't work for signing.
-    r_types = ["image", "raw"]
+
+    print(f"[Serve File] Request for public_id={public_id}")
     
-    for r_type in r_types:
+    # Try raw first (newly uploaded), then image (older uploads)
+    last_error = None
+    for r_type in ["raw", "image"]:
         try:
-            # Construct options for cloudinary_url
-            options = {
-                "resource_type": r_type,
-                "sign_url": True,
-                "expires_at": int(time.time()) + 3600,
-                "secure": True
-            }
-            if version:
-                options["version"] = version
-            if extension:
-                options["format"] = extension
-                
+            # private_download_url hits api.cloudinary.com (not the blocked CDN res.cloudinary.com)
+            # type="upload" is REQUIRED: our files are type=upload (default). Without this,
+            # Cloudinary searches for type=private resources and returns "Resource not found".
+            # format=None: for raw resources, public_id already contains the extension (.pdf).
+            # Passing format="pdf" would cause Cloudinary to double-append the extension.
+            download_url = cloudinary.utils.private_download_url(
+                public_id,
+                None,              # None → not included in signed params → no extension duplication
+                resource_type=r_type,
+                type="upload",    # CRITICAL: our files are type=upload, not type=private
+                expires_at=int(time.time()) + 600,
+                attachment=False,
+            )
+
+            print(f"[Serve File] Trying r_type={r_type} → {download_url[:120]}...")
+            resp = http_requests.get(download_url, stream=True, timeout=30)
+            print(f"[Serve File] Cloudinary response: {resp.status_code}")
+
+            if resp.status_code == 200:
+                filename = public_id.split("/")[-1]
+                if not filename.endswith(".pdf"):
+                    filename += ".pdf"
+
+                def make_streamer(response):
+                    def _stream():
+                        for chunk in response.iter_content(chunk_size=8192):
+                            yield chunk
+                    return _stream
+
+                return StreamingResponse(
+                    make_streamer(resp)(),
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'inline; filename="{filename}"',
+                        "Cache-Control": "no-cache",
+                        "Access-Control-Allow-Origin": "*",
+                    }
+                )
+            else:
+                body = resp.text[:300]
+                last_error = f"r_type={r_type} → HTTP {resp.status_code}: {body}"
+                print(f"[Serve File] FAILED r_type={r_type}: {resp.status_code} — {body[:150]}")
+                continue
+
+        except Exception as e:
+            last_error = str(e)
+            print(f"[Serve File] EXCEPTION r_type={r_type}: {e}")
+            continue
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Could not fetch file from Cloudinary. Last error: {last_error}"
+    )
+
+# Keep old signed-url endpoint for backward compatibility but it's no longer used
+@router.get("/chat/get-signed-url")
+async def get_signed_url(public_id: str, version: Optional[str] = None, extension: Optional[str] = None):
+    """Deprecated: Use /chat/serve-file instead. Returns a signed URL (may still fail on untrusted accounts)."""
+    if not CLOUDINARY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Cloudinary SDK not available")
+    for r_type in ["image", "raw"]:
+        try:
+            options = {"resource_type": r_type, "sign_url": True, "expires_at": int(time.time()) + 3600, "secure": True}
+            if version: options["version"] = version
+            if extension: options["format"] = extension
             url = cloudinary.utils.cloudinary_url(public_id, **options)[0]
             return {"url": url}
         except Exception:
             continue
-            
     raise HTTPException(status_code=500, detail="Could not generate signed URL")
 
 # Configure Gemini
@@ -141,9 +196,8 @@ async def upload_file(file: UploadFile = File(...)):
         
         result = cloudinary.uploader.upload(
             file_bytes,
-            resource_type="auto",       # Let Cloudinary decide (requested by user)
+            resource_type="raw",     # PDFs must be 'raw' for admin API download to work
             folder="sevasetu/chat",
-            access_mode="public",        # KEY: makes the file publicly accessible
             use_filename=True,
             unique_filename=True,
             overwrite=False,
