@@ -1,8 +1,14 @@
 from fastapi import APIRouter, HTTPException, Header, Query  # type: ignore
 from pydantic import BaseModel  # type: ignore
+import requests # type: ignore
 from app.services.auth_service import get_access_token_from_header
 from app.services.gmail_service import list_survey_emails, get_email_full_content, get_multiple_emails_content
-from app.services.gemini_service import generate_survey_report, generate_collective_report
+from app.services.gemini_service import (
+    generate_survey_report, 
+    generate_collective_report, 
+    generate_embedding, 
+    get_report_context_string
+)
 from app.services.firebase_service import save_report, get_user_settings, save_user_settings, get_report_by_id
 from app.services.cloudinary_service import upload_attachment as cloud_uploader
 
@@ -51,6 +57,11 @@ async def scan_survey_emails(
             last_scan_time=last_scan_time
         )
         return result
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Google access token expired or invalid")
+        print(f"Email scan error (HTTP): {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to scan emails: {str(e)}")
     except Exception as e:
         print(f"Email scan error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {str(e)}")
@@ -93,16 +104,26 @@ async def generate_single_report(request: ReportRequest, authorization: str = He
         # 3. Add stored URLs to report
         report["attachments"] = stored_attachments
 
-        # 4. Save to Firestore
+        # 4. Generate Embedding for Memory
+        context_str = get_report_context_string(report)
+        embedding = generate_embedding(context_str)
+
+        # 5. Save to Firestore
         report_id = save_report(
             user_email=request.user_email,
             report_data=report,
             email_subject=email_content["subject"],
+            embedding=embedding
         )
         report["id"] = report_id
 
         print(f"[REPORT FINISH] Report {report_id} generated successfully.", flush=True)
         return {"report": report, "message": "Report generated successfully"}
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Google access token expired or invalid")
+        print(f"[REPORT ERROR] Request failed (HTTP): {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
     except HTTPException:
         raise
     except Exception as e:
@@ -148,15 +169,25 @@ async def generate_group_report(request: CollectiveReportRequest, authorization:
         # 3. Add stored URLs to report
         report["attachments"] = stored_attachments
 
-        # 4. Save to Firestore
+        # 4. Generate Embedding for Memory
+        context_str = get_report_context_string(report)
+        embedding = generate_embedding(context_str)
+
+        # 5. Save to Firestore
         report_id = save_report(
             user_email=request.user_email,
             report_data=report,
             email_subject=f"[Collective] {request.group_label} ({len(request.email_ids)} emails)",
+            embedding=embedding
         )
         report["id"] = report_id
 
         return {"report": report, "message": f"Collective report generated from {len(request.email_ids)} emails"}
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401:
+            raise HTTPException(status_code=401, detail="Google access token expired or invalid")
+        print(f"Collective report error (HTTP): {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate collective report: {str(e)}")
     except HTTPException:
         raise
     except Exception as e:

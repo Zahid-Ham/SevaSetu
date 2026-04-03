@@ -4,7 +4,8 @@ import styled, { keyframes, css } from 'styled-components';
 import { AuthContext } from '../App';
 import { 
   BarChart2, FileText, Sparkles, Inbox, MapPin, 
-  AlertTriangle, Mail, Calendar, Settings, FileSearch
+  AlertTriangle, Mail, Calendar, Settings, FileSearch,
+  MessageSquare
 } from 'lucide-react';
 
 const BACKEND_URL = 'http://localhost:8001';
@@ -86,6 +87,7 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('emails');
   const [activeCategory, setActiveCategory] = useState('survey');
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Monitoring (Loaded from localStorage)
   const [isMonitoring, setIsMonitoring] = useState(() => {
@@ -571,6 +573,26 @@ const Dashboard = () => {
   const badge = roleConfig[userRole] || roleConfig.citizen;
   const currentGroups = activeCategory === 'survey' ? surveyGroups : fieldGroups;
 
+  const sq = searchQuery.toLowerCase().trim();
+  const filteredGroups = currentGroups.map(g => ({
+    ...g,
+    emails: g.emails.filter(e => 
+      (e.subject || '').toLowerCase().includes(sq) || 
+      (e.snippet || '').toLowerCase().includes(sq) ||
+      (g.label || '').toLowerCase().includes(sq)
+    )
+  })).filter(g => g.emails.length > 0);
+
+  const filteredReports = reports.filter(r => {
+    if (!sq) return true;
+    return (
+      (r.executive_summary || '').toLowerCase().includes(sq) ||
+      (r.primary_category || '').toLowerCase().includes(sq) ||
+      (r.sub_category || '').toLowerCase().includes(sq) ||
+      (r.precise_location || '').toLowerCase().includes(sq)
+    );
+  });
+
   return (
     <DashWrapper>
       <DashBg />
@@ -607,6 +629,19 @@ const Dashboard = () => {
           </MonitorBtn>
         </MonitorStrip>
       </TabRow>
+
+      {/* Global Search Bar */}
+      {(activeTab === 'emails' || activeTab === 'reports') && (
+        <SearchContainer>
+          <FileSearch size={22} color="#888" style={{marginLeft: '20px'}} />
+          <SearchInput 
+            type="text" 
+            placeholder="Search for a particular issue, report, location, or keyword..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </SearchContainer>
+      )}
 
       {/* Toast Notification */}
       {toast && (
@@ -683,20 +718,27 @@ const Dashboard = () => {
           )}
 
           {/* Grouped Email List */}
-          {currentGroups.length > 0 && (
+          {filteredGroups.length > 0 && (
             <GroupsList>
-              {currentGroups.map((group) => (
+              {filteredGroups.map((group) => (
                 <GroupCard key={group.group_id}>
                   <GroupHead>
                     <GroupLeft>
                       {group.is_thread && <ThreadBadge>🔗 {group.email_count} related</ThreadBadge>}
                       <GroupTitle>{group.label}</GroupTitle>
                     </GroupLeft>
-                    {group.is_thread && (
-                      <CollectiveBtn onClick={() => generateCollectiveReport(group)}>
-                        📊 Collective Report
-                      </CollectiveBtn>
-                    )}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <SingleBtn onClick={() => {
+                        window.open(`/ai-assistant?groupId=${group.group_id}&groupLabel=${encodeURIComponent(group.label)}`, '_blank');
+                      }}>
+                        <MessageSquare size={14} /> Chat
+                      </SingleBtn>
+                      {group.is_thread && (
+                        <CollectiveBtn onClick={() => generateCollectiveReport(group)}>
+                          📊 Collective Report
+                        </CollectiveBtn>
+                      )}
+                    </div>
                   </GroupHead>
 
                   <EmailTimeline>
@@ -727,11 +769,11 @@ const Dashboard = () => {
             </GroupsList>
           )}
 
-          {totalCount > 0 && currentGroups.length === 0 && (
+          {totalCount > 0 && filteredGroups.length === 0 && (
             <EmptyBox>
-              <EmptyIcon>{activeCategory === 'survey' ? '📋' : '🗺️'}</EmptyIcon>
-              <EmptyTitle>No {activeCategory === 'survey' ? 'survey' : 'field'} reports found</EmptyTitle>
-              <EmptyDesc>Try switching to the other category</EmptyDesc>
+              <EmptyIcon>{searchQuery ? <FileSearch size={48} color="#ccc"/> : (activeCategory === 'survey' ? '📋' : '🗺️')}</EmptyIcon>
+              <EmptyTitle>{searchQuery ? 'No matching issues found' : `No ${activeCategory === 'survey' ? 'survey' : 'field'} reports found`}</EmptyTitle>
+              <EmptyDesc>{searchQuery ? 'Try a different search term' : 'Try switching to the other category'}</EmptyDesc>
             </EmptyBox>
           )}
 
@@ -784,9 +826,15 @@ const Dashboard = () => {
               <EmptyTitle>No reports yet</EmptyTitle>
               <EmptyDesc>Scan & generate your first report!</EmptyDesc>
             </EmptyBox>
+          ) : filteredReports.length === 0 ? (
+            <EmptyBox>
+              <EmptyIcon><FileSearch size={48} color="#ccc" /></EmptyIcon>
+              <EmptyTitle>No matching reports found</EmptyTitle>
+              <EmptyDesc>Try adjusting your search input</EmptyDesc>
+            </EmptyBox>
           ) : (
             <RList>
-              {reports.map((r, i) => (
+              {filteredReports.map((r, i) => (
                 <RListCard key={i} onClick={() => {
                   try { localStorage.setItem(`temp_report_${r.id}`, JSON.stringify(r)); } catch(e){}
                   window.open(`${window.location.origin}/report/${r.id}`, '_blank');
@@ -840,6 +888,8 @@ const Toast = styled.div`
 const DashWrapper = styled.div`flex:1;padding:28px 5%;position:relative;animation:${fadeIn} .5s ease-out;`;
 const DashBg = styled.div`position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 10% 20%,rgba(240,123,17,.03),transparent 40%),radial-gradient(circle at 90% 80%,rgba(61,169,252,.03),transparent 40%);z-index:-1;`;
 const Section = styled.div`animation:${fadeIn} .4s ease-out;`;
+const SearchContainer = styled.div`display:flex;align-items:center;background:rgba(255,255,255,0.8);backdrop-filter:blur(10px);border:1px solid rgba(0,0,0,0.08);border-radius:16px;overflow:hidden;margin-bottom:24px;box-shadow:0 4px 15px rgba(0,0,0,0.02);transition:border 0.3s;&:focus-within{border-color:#F07B11;box-shadow:0 4px 20px rgba(240,123,17,0.1);}`;
+const SearchInput = styled.input`flex:1;border:none;padding:16px 14px;font-size:1.05rem;font-family:'Inter',sans-serif;outline:none;background:transparent;&::placeholder{color:#aaa;}`;
 
 /* ── Profile ── */
 const ProfileBar = styled.div`display:flex;align-items:center;justify-content:space-between;padding:20px 28px;background:rgba(255,255,255,.6);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.8);border-radius:18px;margin-bottom:20px;box-shadow:0 4px 20px rgba(0,0,0,.04);@media(max-width:700px){flex-direction:column;gap:14px;}`;

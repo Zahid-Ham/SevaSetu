@@ -285,8 +285,7 @@ def get_email_metadata(access_token: str, message_id: str) -> dict | None:
     url = f"{GMAIL_API_BASE}/messages/{message_id}"
     params = {"format": "metadata", "metadataHeaders": ["Subject", "From", "Date"]}
     response = requests.get(url, headers=_get_headers(access_token), params=params)
-    if response.status_code != 200:
-        return None
+    response.raise_for_status()
     data = response.json()
     headers = {h["name"]: h["value"] for h in data.get("payload", {}).get("headers", [])}
     return {
