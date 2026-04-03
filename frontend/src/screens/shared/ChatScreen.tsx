@@ -23,8 +23,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { audioService } from '../../services/chat/AudioRecordingService';
+import Markdown from 'react-native-markdown-display';
 import { useChatStore } from '../../services/store/useChatStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
 import { useEventStore } from '../../services/store/useEventStore';
@@ -358,7 +361,7 @@ const VideoBubble = ({
   );
 };
 
-const MessageBubble = ({ 
+const MessageBubble = React.memo(({ 
   message, 
   isSelf, 
   role, 
@@ -435,9 +438,41 @@ const MessageBubble = ({
       </TouchableOpacity>
     </View>
   );
-};
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
+
+// ── Markdown Styles ──────────────────────────────────────────────────────────
+const markdownStyles = {
+  body: {
+    color: '#333',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  heading1: { fontSize: 22, fontWeight: 'bold' as 'bold', color: '#00796B' },
+  heading2: { fontSize: 18, fontWeight: 'bold' as 'bold', color: '#00796B', marginTop: 12 },
+  strong: { fontWeight: 'bold' as 'bold', color: '#000' },
+  bullet_list: { marginVertical: 10 },
+  list_item: { marginVertical: 4 },
+};
+
+const aiMarkdownStyles = {
+  body: {
+    color: '#1A237E',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  strong: { fontWeight: 'bold' as 'bold', color: '#1A237E' },
+};
+
+const analysisMarkdownStyles = {
+  body: {
+    color: '#334155',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  strong: { fontWeight: 'bold' as 'bold', color: '#1E293B' },
+};
 
 export const ChatScreen = () => {
   const route = useRoute<any>();
@@ -469,14 +504,32 @@ export const ChatScreen = () => {
     summary,
     loadingSummary,
     markRoomRead,
-    deleteMessage
+    deleteMessage,
+    aiHistory,
+    loadingAskAi,
+    loadingAiHistory,
+    askAi,
+    clearAiHistory,
+    analysis,
+    loadingAnalysis,
+    analyzeChat
   } = useChatStore();
+
+  useEffect(() => {
+    if (analysis) {
+      console.log("[ChatScreen] Deep Analysis Data Received:", analysis);
+    }
+  }, [analysis]);
 
   const [inputText, setInputText] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [showIntelligenceMenu, setShowIntelligenceMenu] = useState(false);
+  const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [showAskAi, setShowAskAi] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -600,6 +653,42 @@ export const ChatScreen = () => {
       event_name: event_name,
     });
     setInputText('');
+  };
+
+  const handleDownloadReport = async () => {
+    setShowIntelligenceMenu(false);
+    setUploadProgress('Preparing PDF...');
+    setUploading(true);
+    
+    try {
+      const fileName = `SevaSetu_Report_${roomId}.pdf`;
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      
+      const downloadUrl = `${API_BASE_URL}/chat/report/${roomId}?event_name=${encodeURIComponent(event_name)}`;
+      
+      const downloadRes = await FileSystem.downloadAsync(downloadUrl, fileUri);
+      
+      if (downloadRes.status === 200) {
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(downloadRes.uri);
+        } else {
+          Alert.alert('Report Ready', 'Download complete. You can find it at ' + downloadRes.uri);
+        }
+      } else {
+        throw new Error('Server returned ' + downloadRes.status);
+      }
+    } catch (e: any) {
+      Alert.alert('Download Error', e.message);
+    } finally {
+      setUploading(false);
+      setUploadProgress('');
+    }
+  };
+
+  const handleAskAi = () => {
+    if (!aiQuestion.trim()) return;
+    askAi(roomId, aiQuestion.trim(), currentUserId, event_name);
+    setAiQuestion('');
   };
 
   const handleAttachMedia = async (mediaType: 'image' | 'camera' | 'document' | 'video') => {
@@ -763,21 +852,17 @@ export const ChatScreen = () => {
         </View>
 
         <View style={styles.headerRight}>
-          {isSupervisor && (
-            <TouchableOpacity 
-              style={styles.summaryAction}
-              onPress={() => {
-                generateSummary(roomId, event_name);
-                setShowSummary(true);
-              }}
-            >
-              <LinearGradient colors={['#E8F5E9', '#C8E6C9']} style={styles.summaryIcon}>
-                <Feather name="zap" size={18} color={colors.primaryGreen} />
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.moreBtn}>
-            <Feather name="more-vertical" size={22} color={colors.textSecondary} />
+          <TouchableOpacity 
+            style={styles.intelligenceBtn}
+            onPress={() => setShowIntelligenceMenu(true)}
+          >
+            <LinearGradient colors={['#E8F5E9', '#C8E6C9']} style={styles.intelIcon}>
+              <Feather name="zap" size={18} color={colors.primaryGreen} />
+            </LinearGradient>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.moreBtn} onPress={() => setShowProfile(true)}>
+            <Feather name="info" size={22} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -981,7 +1066,9 @@ export const ChatScreen = () => {
                   <Text style={styles.loadingText}>Synthesizing takeaways...</Text>
                 </View>
               ) : (
-                <Text style={styles.summaryText}>{summary || 'No actionable takeaways found.'}</Text>
+                <Markdown style={markdownStyles}>
+                  {summary || 'No actionable takeaways found.'}
+                </Markdown>
               )}
             </ScrollView>
             <TouchableOpacity style={styles.modalFooterBtn} onPress={() => setShowSummary(false)}>
@@ -1054,6 +1141,372 @@ export const ChatScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* ── Intelligence Menu ── */}
+      <Modal visible={showIntelligenceMenu} transparent animationType="slide">
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowIntelligenceMenu(false)}
+        >
+          <View style={styles.mediaPickerSheet}>
+            <View style={styles.mediaPickerHandle} />
+            <Text style={styles.mediaPickerTitle}>✨ SevaSetu AI Intelligence</Text>
+            
+            <TouchableOpacity 
+              style={styles.mediaPickerOption} 
+              onPress={() => {
+                setShowIntelligenceMenu(false);
+                generateSummary(roomId, event_name);
+                setShowSummary(true);
+              }}
+            >
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#E0F2F1' }]}>
+                <Feather name="list" size={22} color="#00796B" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>Quick Summary</Text>
+                <Text style={styles.mediaPickerDesc}>Fast takeaway of current conversation</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.mediaPickerOption} 
+              onPress={() => {
+                setShowIntelligenceMenu(false);
+                analyzeChat(roomId, event_name);
+                setShowFullAnalysis(true);
+              }}
+            >
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#F3E5F5' }]}>
+                <Feather name="trending-up" size={22} color="#7B1FA2" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>Deep Chat Analysis</Text>
+                <Text style={styles.mediaPickerDesc}>Rich insights, sentiment, & mission alignment</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.mediaPickerOption} 
+              onPress={() => {
+                setShowIntelligenceMenu(false);
+                setShowAskAi(true);
+              }}
+            >
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#E3F2FD' }]}>
+                <Feather name="message-square" size={22} color="#1976D2" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>Ask AI About This Chat</Text>
+                <Text style={styles.mediaPickerDesc}>Memory-aware Q&A for this conversation</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.mediaPickerOption} 
+              onPress={handleDownloadReport}
+            >
+              <View style={[styles.mediaPickerIcon, { backgroundColor: '#E8F5E9' }]}>
+                <Feather name="download" size={22} color="#2E7D32" />
+              </View>
+              <View>
+                <Text style={styles.mediaPickerLabel}>Download Full Report (PDF)</Text>
+                <Text style={styles.mediaPickerDesc}>Save professional analysis to your device</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.mediaPickerCancel} onPress={() => setShowIntelligenceMenu(false)}>
+              <Text style={styles.mediaPickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Ask AI Panel ── */}
+      <Modal visible={showAskAi} transparent animationType="slide">
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <TouchableOpacity 
+            style={StyleSheet.absoluteFill} 
+            activeOpacity={1} 
+            onPress={() => setShowAskAi(false)} 
+          />
+          <View style={styles.askAiSheet}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ fontSize: 24, marginRight: 8 }}>🤖</Text>
+                <Text style={styles.modalTitle}>Ask SevaSetu AI</Text>
+              </View>
+              
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {aiHistory.length > 0 && (
+                  <TouchableOpacity 
+                    onPress={() => {
+                      Alert.alert(
+                        "Clear AI History?",
+                        "This will permanently delete all your previous questions and answers in this specific chat room.",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          { text: "Clear All", style: "destructive", onPress: () => clearAiHistory(roomId) }
+                        ]
+                      );
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Feather name="trash-2" size={19} color="#FF5252" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setShowAskAi(false)} style={styles.modalCloseIcon}>
+                  <Feather name="x" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.askAiContent}>
+              <ScrollView 
+                style={styles.askAiAnswerArea}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                ref={ref => {
+                  // Auto-scroll to bottom simplified for ScrollView
+                  if (ref) setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
+                }}
+              >
+                {aiHistory.length === 0 && !loadingAskAi ? (
+                  <View style={styles.emptyAskAi}>
+                    <Feather name="cpu" size={40} color="#DDD" />
+                    <Text style={styles.emptyAskAiText}>Ask me any specific question about what you discussed in this chat.</Text>
+                  </View>
+                ) : (
+                  <View>
+                    {aiHistory.map((item, idx) => (
+                      <View key={item.id || idx} style={{ marginBottom: 16 }}>
+                        {/* Question Bubble (Right) */}
+                        <View style={styles.aiQuestionWrapper}>
+                          <View style={styles.aiQuestionBubble}>
+                            <Text style={styles.aiQuestionText}>{item.question}</Text>
+                          </View>
+                        </View>
+
+                        {/* Answer Bubble (Left) */}
+                        <View style={styles.aiAnswerWrapper}>
+                          <View style={styles.aiAnswerBubble}>
+                            <Markdown style={aiMarkdownStyles}>
+                              {item.answer}
+                            </Markdown>
+                            {item.timestamp && (
+                              <Text style={styles.aiAnswerTimestamp}>
+                                {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                    
+                    {loadingAskAi && (
+                      <View style={styles.loadingAiInteraction}>
+                        <ActivityIndicator color={colors.primaryGreen} size="small" />
+                        <Text style={styles.loadingAiText}>Thinking...</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </ScrollView>
+
+              <View style={styles.askAiInputRow}>
+                <TextInput
+                  style={styles.askAiInput}
+                  placeholder="e.g. What was the budget we discussed?"
+                  value={aiQuestion}
+                  onChangeText={setAiQuestion}
+                  onSubmitEditing={handleAskAi}
+                />
+                <TouchableOpacity 
+                  style={styles.askAiSendBtn} 
+                  onPress={handleAskAi}
+                  disabled={useChatStore.getState().loadingAskAi || !aiQuestion.trim()}
+                >
+                  <Feather name="arrow-up" size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Full Analysis Modal ── */}
+      <Modal visible={showFullAnalysis} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.summaryModal, { height: '85%', width: '92%' }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>📊 Deep Chat Analysis</Text>
+                <Text style={styles.modalSubtitle}>{event_name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowFullAnalysis(false)} style={styles.modalCloseIcon}>
+                <Feather name="x" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView 
+              style={styles.summaryContent} 
+              contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {loadingAnalysis ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color={colors.primaryGreen} size="large" />
+                  <Text style={styles.loadingText}>Processing Mission Intelligence...</Text>
+                  <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 10, textAlign: 'center' }}>
+                    Gemini is reading documents and images to extract strategic insights.
+                  </Text>
+                  <Text style={{ fontSize: 10, color: '#ccc', marginTop: 20 }}>
+                    DEBUG: roomId={roomId} | loading={String(loadingAnalysis)}
+                  </Text>
+                </View>
+              ) : (analysis && Object.keys(analysis).length > 0) ? (
+                <View>
+                  <Text style={{ fontSize: 9, color: '#F1F5F9', position: 'absolute', top: -20 }}>
+                    DEBUG: RECEIVED_KEYS={Object.keys(analysis).join(',')}
+                  </Text>
+                  {/* 1. Mission Executive Summary */}
+                  <View style={styles.analysisCard}>
+                    <Text style={styles.analysisLabel}>MISSION EXECUTIVE SUMMARY</Text>
+                    <Markdown style={analysisMarkdownStyles}>
+                      {analysis.executive_summary || "No executive summary available."}
+                    </Markdown>
+                  </View>
+
+                  {/* 2. Visual Insights & Attachments */}
+                  {analysis.visual_insights?.length > 0 && (
+                    <View style={styles.analysisCard}>
+                      <Text style={styles.analysisLabel}>VISUAL INSIGHTS & ATTACHMENTS</Text>
+                      {analysis.visual_insights.map((item: any, idx: number) => (
+                        <View key={idx} style={{ marginBottom: 10 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Feather name={item.type === 'pdf' ? 'file-text' : 'image'} size={14} color={colors.primaryGreen} />
+                            <Text style={{ fontWeight: '700', fontSize: 13, color: colors.textPrimary }}>{item.name}</Text>
+                          </View>
+                          <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 4, fontStyle: 'italic' }}>
+                            {item.summary}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* 3. Volunteer Readiness */}
+                  {analysis.volunteer_readiness && (
+                    <View style={styles.analysisCard}>
+                      <Text style={styles.analysisLabel}>VOLUNTEER READINESS ASSESSMENT</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, marginTop: 4 }}>
+                        <View style={{
+                          backgroundColor: 
+                            analysis.volunteer_readiness.status === 'Ready' ? '#E8F5E9' : 
+                            analysis.volunteer_readiness.status === 'Not Ready' ? '#FFEBEE' : '#FFF3E0',
+                          paddingHorizontal: 12,
+                          paddingVertical: 4,
+                          borderRadius: 20,
+                          borderWidth: 1,
+                          borderColor: 
+                            analysis.volunteer_readiness.status === 'Ready' ? '#81C784' : 
+                            analysis.volunteer_readiness.status === 'Not Ready' ? '#E57373' : '#FFB74D',
+                        }}>
+                          <Text style={{
+                            color: 
+                              analysis.volunteer_readiness.status === 'Ready' ? '#2E7D32' : 
+                              analysis.volunteer_readiness.status === 'Not Ready' ? '#C62828' : '#EF6C00',
+                            fontWeight: '800',
+                            fontSize: 12,
+                            textTransform: 'uppercase'
+                          }}>
+                            {analysis.volunteer_readiness.status}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 20 }}>
+                        {analysis.volunteer_readiness.reasoning}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.analysisCard}>
+                    <Text style={styles.analysisLabel}>MISSION OBJECTIVES & TOPICS</Text>
+                    <View style={styles.skillsTagRow}>
+                      {analysis.issues_discussed?.map((topic: string) => (
+                        <View key={topic} style={[styles.miniSkillTag, { backgroundColor: '#F3E5F5' }]}>
+                          <Text style={[styles.miniSkillText, { color: '#7B1FA2' }]}>{topic}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+
+                  <View style={styles.analysisCard}>
+                    <Text style={styles.analysisLabel}>CRITICAL THINKING & INSIGHTS</Text>
+                    {analysis.key_insights?.map((insight: string, idx: number) => (
+                      <View key={idx} style={styles.insightRow}>
+                        <View style={styles.insightDot} />
+                        <Text style={styles.insightText}>{insight}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={styles.analysisCard}>
+                    <Text style={styles.analysisLabel}>MISSION ACTION ITEMS</Text>
+                    {analysis.action_items?.map((item: string, idx: number) => (
+                      <View key={idx} style={styles.actionRow}>
+                        <Feather name="square" size={14} color={colors.primaryGreen} />
+                        <Text style={styles.actionText}>{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={styles.analysisCard}>
+                    <Text style={styles.analysisLabel}>PROFESSIONAL COMMUNICATION METRICS</Text>
+                    <View style={styles.metricsRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.metricLabel}>Mission Clarity Score</Text>
+                        <View style={styles.progressBarBg}>
+                          <View style={[styles.progressBarFill, { width: `${(analysis.quality_score || 0) * 10}%` }]} />
+                        </View>
+                      </View>
+                      <Text style={styles.metricVal}>{analysis.quality_score}/10</Text>
+                    </View>
+                    <Text style={styles.sentimentHint}>
+                      Overall Tone: {analysis.sentiment_breakdown?.overall || "N/A"}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.emptyCard}>
+                  <Feather name="alert-circle" size={40} color="#DDD" />
+                  <Text style={styles.emptyText}>No analysis data available.</Text>
+                  <Text style={{ fontSize: 12, color: colors.textSecondary, textAlign: 'center', marginTop: 10 }}>
+                    We couldn't generate a report from current messages. Try sending more mission-related updates.
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.retryBtn} 
+                    onPress={() => analyzeChat(roomId, event_name)}
+                  >
+                    <Text style={styles.retryBtnText}>Retry Analysis</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity 
+              style={[styles.modalFooterBtn, { backgroundColor: colors.primaryGreen }]} 
+              onPress={handleDownloadReport}
+            >
+              <Feather name="download" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.modalFooterBtnText}>Download PDF Report</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -1119,6 +1572,18 @@ const styles = StyleSheet.create({
   },
   moreBtn: {
     padding: 4,
+  },
+  intelligenceBtn: {
+    marginRight: 10,
+  },
+  intelIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E8F5E9',
   },
   messageList: {
     padding: spacing.md,
@@ -1315,18 +1780,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  summaryModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    height: '70%',
-    padding: spacing.xl,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1732,5 +2185,239 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
     height: 40,
+  },
+  // ── Intelligence/AI Styles
+  intelligenceSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: spacing.xl,
+    paddingBottom: 40,
+  },
+  askAiSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    height: '75%',
+    padding: spacing.lg,
+  },
+  askAiContent: {
+    flex: 1,
+  },
+  askAiAnswerArea: {
+    flex: 1,
+    marginVertical: 15,
+  },
+  aiQuestionWrapper: {
+    alignItems: 'flex-end',
+    marginBottom: 8,
+  },
+  aiQuestionBubble: {
+    backgroundColor: '#E3F2FD',
+    padding: 12,
+    borderRadius: 18,
+    borderBottomRightRadius: 4,
+    maxWidth: '85%',
+  },
+  aiQuestionText: {
+    fontSize: 14,
+    color: '#1565C0',
+    fontWeight: '600',
+  },
+  aiAnswerWrapper: {
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  aiAnswerBubble: {
+    backgroundColor: '#F3E5F5', // Light purple for AI
+    padding: 16,
+    borderRadius: 20,
+    borderBottomLeftRadius: 4,
+    maxWidth: '90%',
+  },
+  aiAnswerTimestamp: {
+    fontSize: 10,
+    color: '#7B1FA2',
+    marginTop: 8,
+    textAlign: 'right',
+    opacity: 0.7,
+  },
+  loadingAiInteraction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+  },
+  loadingAiText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  emptyAskAi: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.5,
+    gap: 15,
+    marginTop: 100,
+  },
+  emptyAskAiText: {
+    textAlign: 'center',
+    color: colors.textSecondary,
+    fontSize: 14,
+    paddingHorizontal: 40,
+  },
+  askAiInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 25,
+    paddingRight: 6,
+    paddingLeft: 15,
+    marginBottom: 10,
+  },
+  askAiInput: {
+    flex: 1,
+    height: 50,
+    fontSize: 15,
+  },
+  askAiSendBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primaryGreen,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  analysisCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  analysisLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  analysisValue: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textPrimary,
+  },
+  insightRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 8,
+  },
+  insightDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7B1FA2',
+    marginTop: 7,
+  },
+  insightText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.textPrimary,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  actionText: {
+    fontSize: 14,
+    color: colors.textPrimary,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+    marginBottom: 10,
+  },
+  metricLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 6,
+  },
+  metricVal: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.primaryGreen,
+  },
+  progressBarBg: {
+    height: 6,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: colors.primaryGreen,
+  },
+  sentimentHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  modalOverlay: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  summaryModal: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+    alignSelf: 'center',
+  },
+  emptyCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginTop: 8,
+  },
+  retryBtn: {
+    marginTop: 24,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  retryBtnText: {
+    color: colors.textPrimary,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: colors.primaryGreen,
+    fontWeight: '700',
+    marginTop: 2,
   },
 });

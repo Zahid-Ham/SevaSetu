@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -14,6 +14,13 @@ from dotenv import load_dotenv
 
 from app.config.firebase_config import db # type: ignore
 from firebase_admin import firestore
+from app.services.chat_analysis_service import (
+    analyze_chat, 
+    build_chat_chunks, 
+    embed_and_store_chunks, 
+    semantic_search
+)
+from app.services.chat_report_service import generate_chat_report_pdf
 
 load_dotenv()
 
@@ -141,7 +148,7 @@ async def get_signed_url(public_id: str, version: Optional[str] = None, extensio
 # Configure Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 class ChatMessage(BaseModel):
     role: str  # 'volunteer' | 'supervisor' | 'system'
@@ -149,11 +156,12 @@ class ChatMessage(BaseModel):
     timestamp: Optional[str] = None
 
 class SummarizeChatRequest(BaseModel):
+    room_id: Optional[str] = None
     messages: List[ChatMessage]
     context_event: Optional[str] = None
 
 @router.post("/chat/summarize")
-async def summarize_chat(req: SummarizeChatRequest):
+async def summarize_chat(req: SummarizeChatRequest, background_tasks: BackgroundTasks):
     """
     Uses Gemini to summarize a conversation between a supervisor and a volunteer.
     Provides 'Key Takeaways' and 'Action Items'.
@@ -185,12 +193,33 @@ Keep it professional and brief.
 """
 
     try:
+        print(f"\n--- [Gemini Summary] Generating for event: {req.context_event} ---")
+        print(f"[Gemini Summary] Prompt Length: {len(prompt)} chars")
+        
         response = model.generate_content(prompt)
         summary_text = response.text.strip()
+        
+        print(f"[Gemini Summary] SUCCESS. Response Length: {len(summary_text)} chars")
+        
+        # ── Trigger Background Embedding ──
+        # This ensures the 'Ask AI' context stays fresh when we summarize.
+        room_id = req.room_id or "unknown"
+        room_doc = db.collection("chats").document(room_id).get()
+        room_data = room_doc.to_dict() if room_doc.exists else {}
+        v_name = room_data.get("volunteer_name", "Volunteer")
+        s_name = room_data.get("supervisor_name", "Supervisor")
+        
+        chunks = build_chat_chunks([m.dict() for m in req.messages], v_name, s_name)
+        background_tasks.add_task(embed_and_store_chunks, room_id, chunks)
+        
         return {"success": True, "summary": summary_text}
     except Exception as e:
-        print(f"[Chat Summary Error] {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate AI summary.")
+        print(f"\n!!! [Gemini Summary ERROR] !!!")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Detail: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"AI Summarization failed: {str(e)}")
 
 # ── File Upload (Signed — for PDFs and documents) ───────────────────────────
 
@@ -448,7 +477,233 @@ async def get_user_rooms(user_id: str):
         
         # Sort by updated_at descending (newest first)
         result.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-        
         return {"success": True, "rooms": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ── Chat Intelligence Endpoints ──────────────────────────────────────────
+
+class AnalyzeChatRequest(BaseModel):
+    room_id: str
+    event_name: Optional[str] = ""
+    fetch_limit: int = 200
+
+@router.post("/chat/analyze")
+async def analyze_chat_endpoint(req: AnalyzeChatRequest, background_tasks: BackgroundTasks):
+    """
+    Fetches chat history, generates deep analysis, and caches it.
+    """
+    try:
+        # 1. Fetch messages
+        messages_resp = await get_messages(req.room_id, limit=req.fetch_limit)
+        messages = messages_resp.get("messages", [])
+        
+        if not messages:
+            return {"success": False, "error": "No messages found to analyze."}
+
+        # 2. Perform Analysis
+        analysis = await analyze_chat(messages, req.event_name)
+        
+        # ── Trigger Background Embedding & Intelligence Backfill ──
+        # 2. Re-embed in background to update "memory" for subsequent Q&A
+        room_doc = db.collection("chats").document(req.room_id).get()
+        room_data = room_doc.to_dict() if room_doc.exists else {}
+        v_name = room_data.get("volunteer_name", "Volunteer")
+        s_name = room_data.get("supervisor_name", "Supervisor")
+        
+        chunks = build_chat_chunks(messages, v_name, s_name)
+        
+        # Backfill document summaries into the chunks so Ask AI knows about them
+        for insight in analysis.get("visual_insights", []):
+            doc_chunk = f"[DOCUMENT SUMMARY: {insight.get('name')}] This {insight.get('type')} contains: {insight.get('summary')}"
+            chunks.append(doc_chunk)
+            
+        background_tasks.add_task(embed_and_store_chunks, req.room_id, chunks)
+        
+        # 3. Cache Analysis in Firestore
+        db.collection("chat_analysis").document(req.room_id).set(analysis)
+        
+        return {"success": True, "analysis": analysis}
+    except Exception as e:
+        print(f"\n!!! [Analyze Endpoint ERROR] !!!")
+        print(f"Room ID: {req.room_id}")
+        print(f"Error Detail: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@router.get("/chat/report/{room_id}")
+async def get_chat_report(room_id: str, event_name: str = ""):
+    """
+    Generates and returns a PDF report based on the cached analysis.
+    """
+    try:
+        # 1. Get cached analysis
+        doc = db.collection("chat_analysis").document(room_id).get()
+        if not doc.exists:
+            # If no analysis exists, trigger one now
+            messages_resp = await get_messages(room_id, limit=200)
+            messages = messages_resp.get("messages", [])
+            analysis = await analyze_chat(messages, event_name)
+            db.collection("chat_analysis").document(room_id).set(analysis)
+        else:
+            analysis = doc.to_dict()
+
+        # 2. Generate PDF
+        pdf_bytes = generate_chat_report_pdf(analysis, event_name, room_id)
+        
+        # 3. Stream Response
+        from io import BytesIO
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="SevaSetu_Report_{room_id}.pdf"',
+                "Cache-Control": "no-cache"
+            }
+        )
+    except Exception as e:
+        print(f"[Report Endpoint Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AskChatRequest(BaseModel):
+    room_id: str
+    question: str
+    user_id: str
+    event_name: Optional[str] = ""
+
+@router.post("/chat/ask")
+async def ask_chat_endpoint(req: AskChatRequest):
+    """
+    Semantic search Q&A over the chat history.
+    """
+    try:
+        room_id = req.room_id
+        
+        # 1. Check if memory (chunks) exists
+        mem_doc = db.collection("chat_memory").document(room_id).get()
+        needs_re_embedding = True
+        
+        if mem_doc.exists:
+            data = mem_doc.to_dict()
+            last_emb = data.get("last_embedded_at")
+            # If embedded in last 1 hour, reuse
+            if last_emb:
+                from datetime import datetime, timezone
+                # last_emb is a datetime from firestore
+                if (datetime.now(timezone.utc) - last_emb).total_seconds() < 3600:
+                    needs_re_embedding = False
+        
+        if needs_re_embedding:
+            print(f"[Ask AI] Re-embedding needed for room: {room_id}")
+            # Fetch room meta to get proper names
+            room_doc = db.collection("chats").document(room_id).get()
+            room_data = room_doc.to_dict() if room_doc.exists else {}
+            v_name = room_data.get("volunteer_name", "Volunteer")
+            s_name = room_data.get("supervisor_name", "Supervisor")
+            
+            messages_resp = await get_messages(room_id, limit=500)
+            messages = messages_resp.get("messages", [])
+            chunks = build_chat_chunks(messages, v_name, s_name)
+            embed_and_store_chunks(room_id, chunks)
+            
+        # 2. Semantic Search to get context
+        context = semantic_search(room_id, req.question)
+        
+        # Diagnostic Log
+        print(f"\n--- [Ask AI Engine] Final context for Gemini ---")
+        print(f"Room ID: {room_id}")
+        print(f"Question: {req.question}")
+        print(f"Context Length: {len(context)} characters")
+        if context:
+            print(f"Context Sample: {context[:300]}...")
+        else:
+            print("!!! WARNING: CONTEXT IS EMPTY !!!")
+        
+        # 3. Call Gemini for final answer
+        prompt = f"""
+        You are 'SevaSetu AI helper'. Your goal is to answer questions about a specific conversation 
+        between an NGO supervisor and a volunteer regarding '{req.event_name}'.
+        
+        Use the following relevant snippets from the chat history to answer the user's question accurately.
+        If the answer isn't in the context, say you don't have enough information from the chat.
+        
+        CHAT CONTEXT:
+        {context}
+        
+        QUESTION: {req.question}
+        
+        Answer professionally and concisely.
+        """
+        
+        response = model.generate_content(prompt)
+        answer = response.text.strip()
+        
+        # 4. Persistence: Save Q&A to Firestore under this room
+        # We store it in a subcollection 'ai_interactions'
+        interaction_ref = db.collection("chats").document(room_id).collection("ai_interactions").document()
+        interaction_ref.set({
+            "id": interaction_ref.id,
+            "question": req.question,
+            "answer": answer,
+            "user_id": req.user_id,
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "context_used": True if context else False
+        })
+        
+        return {
+            "success": True, 
+            "answer": answer, 
+            "context_used": True if context else False
+        }
+    except Exception as e:
+        print(f"\n!!! [Ask Endpoint ERROR] !!!")
+        print(f"Room ID: {req.room_id}, Question: {req.question}")
+        print(f"Error Detail: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Ask AI failed: {str(e)}")
+
+@router.get("/chat/ask/history/{room_id}")
+async def get_ai_history(room_id: str):
+    """
+    Returns all previous Q&A interactions for a specific room.
+    """
+    try:
+        interactions_ref = db.collection("chats").document(room_id).collection("ai_interactions")
+        docs = interactions_ref.order_by("timestamp", direction=firestore.Query.ASCENDING).stream()
+        
+        history = []
+        for doc in docs:
+            d = doc.to_dict()
+            if d.get("timestamp"):
+                d["timestamp"] = d["timestamp"].isoformat()
+            history.append(d)
+            
+        return {"success": True, "history": history}
+    except Exception as e:
+        print(f"[AI History Error] {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch AI history: {str(e)}")
+
+@router.delete("/chat/ask/history/{room_id}")
+async def clear_ai_history(room_id: str):
+    """
+    Deletes all AI interactions for a specific room.
+    """
+    try:
+        interactions_ref = db.collection("chats").document(room_id).collection("ai_interactions")
+        docs = interactions_ref.stream()
+        
+        batch = db.batch()
+        deleted_count = 0
+        for doc in docs:
+            batch.delete(doc.reference)
+            deleted_count += 1
+            
+        if deleted_count > 0:
+            batch.commit()
+            
+        return {"success": True, "deleted_count": deleted_count}
+    except Exception as e:
+        print(f"[Clear AI History Error] {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear AI history: {str(e)}")

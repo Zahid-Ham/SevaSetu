@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../api/eventPredictionService';
-import { ChatMessage, ChatRoom } from '../api/eventPredictionService';
+import { ChatMessage, ChatRoom, AiMessage } from '../api/eventPredictionService';
 
 interface ChatState {
   // Data
@@ -12,6 +12,12 @@ interface ChatState {
   sending: boolean;
   summary: string | null;
   loadingSummary: boolean;
+  analysis: any | null;
+  loadingAnalysis: boolean;
+  askAiAnswer: string | null;
+  aiHistory: AiMessage[];
+  loadingAskAi: boolean;
+  loadingAiHistory: boolean;
 
   // Actions
   loadRooms: (userId: string) => Promise<void>;
@@ -46,6 +52,10 @@ interface ChatState {
   
   // AI Integration
   generateSummary: (roomId: string, eventName?: string) => Promise<void>;
+  analyzeChat: (roomId: string, eventName?: string) => Promise<void>;
+  askAi: (roomId: string, question: string, userId: string, eventName?: string) => Promise<void>;
+  loadAiHistory: (roomId: string) => Promise<void>;
+  clearAiHistory: (roomId: string) => Promise<void>;
   
   resetChat: () => void;
 }
@@ -59,6 +69,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sending: false,
   summary: null,
   loadingSummary: false,
+  analysis: null,
+  loadingAnalysis: false,
+  askAiAnswer: null,
+  aiHistory: [],
+  loadingAskAi: false,
+  loadingAiHistory: false,
 
   loadRooms: async (userId: string) => {
     set({ loadingRooms: true });
@@ -75,6 +91,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const messages = await api.fetchMessages(roomId, userId);
       set({ messages });
+      // Also load AI history for the room
+      get().loadAiHistory(roomId);
     } finally {
       set({ loadingMessages: false });
     }
@@ -118,11 +136,73 @@ export const useChatStore = create<ChatState>((set, get) => ({
   generateSummary: async (roomId: string, eventName?: string) => {
     set({ loadingSummary: true, summary: null });
     try {
-      const messages = get().messages;
-      const summaryText = await api.summarizeChat(messages, eventName);
+      const room = get().rooms.find(r => r.id === roomId);
+      const messages = get().messages.map(m => ({
+        role: m.sender_id === room?.supervisor_id ? 'supervisor' : 'volunteer',
+        content: m.text,
+        timestamp: m.timestamp
+      }));
+      
+      const summaryText = await api.summarizeChat(messages, eventName, roomId);
       set({ summary: summaryText });
     } finally {
       set({ loadingSummary: false });
+    }
+  },
+
+  analyzeChat: async (roomId: string, eventName?: string) => {
+    set({ loadingAnalysis: true, analysis: null });
+    try {
+      const analysis = await api.analyzeChat(roomId, eventName);
+      console.log('[STORE] analyzeChat success. Saving data keys:', 
+        analysis ? Object.keys(analysis) : 'NULL'
+      );
+      set({ analysis });
+    } finally {
+      set({ loadingAnalysis: false });
+    }
+  },
+
+  askAi: async (roomId: string, question: string, userId: string, eventName?: string) => {
+    set({ loadingAskAi: true });
+    try {
+      const result = await api.askAi(roomId, question, userId, eventName);
+      // Append temporary object to history for immediate UI update
+      const newInteraction: AiMessage = {
+        id: Math.random().toString(36).substr(2, 9),
+        question,
+        answer: result.answer,
+        user_id: userId,
+        timestamp: new Date().toISOString(),
+        context_used: result.context_used
+      };
+      set((state) => ({ 
+        aiHistory: [...state.aiHistory, newInteraction],
+        askAiAnswer: result.answer 
+      }));
+    } finally {
+      set({ loadingAskAi: false });
+    }
+  },
+
+  loadAiHistory: async (roomId: string) => {
+    set({ loadingAiHistory: true });
+    try {
+      const history = await api.fetchAiHistory(roomId);
+      set({ aiHistory: history });
+    } finally {
+      set({ loadingAiHistory: false });
+    }
+  },
+
+  clearAiHistory: async (roomId: string) => {
+    try {
+      const success = await api.clearAiHistory(roomId);
+      if (success) {
+        set({ aiHistory: [], askAiAnswer: null });
+      }
+    } catch (e) {
+      console.warn('[useChatStore] clearAiHistory failed:', e);
     }
   },
 
@@ -165,8 +245,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ 
       messages: [], 
       activeRoomId: null, 
-      summary: null,
-      loadingSummary: false 
+      loadingSummary: false,
+      analysis: null,
+      loadingAnalysis: false,
+      askAiAnswer: null,
+      loadingAskAi: false
     });
   },
 }));

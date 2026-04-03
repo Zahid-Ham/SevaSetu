@@ -29,7 +29,7 @@ const BASE_URL = getBaseUrl();
 // Set to true if you are offline or the backend is down during the demo
 const USE_MOCK_ONLY = false;
 
-const TIMEOUT_MS = 10000; // 10 seconds timeout for Firestore reliability
+const TIMEOUT_MS = 30000; // Increased to 30 seconds for Deep Analysis reliability
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -121,6 +121,15 @@ export interface LiveMatch {
   };
   ai_reasoning: string;
   is_live_match: true;
+}
+
+export interface AiMessage {
+  id: string;
+  question: string;
+  answer: string;
+  user_id: string;
+  timestamp: string;
+  context_used: boolean;
 }
 
 export interface ChatMessage {
@@ -409,12 +418,54 @@ export async function fetchUserRooms(userId: string): Promise<ChatRoom[]> {
   }
 }
 
-export async function summarizeChat(messages: any[], contextEvent?: string): Promise<string> {
+export async function summarizeChat(messages: any[], contextEvent?: string, roomId?: string): Promise<string> {
   const data = await apiFetch<any>('/chat/summarize', {
     method: 'POST',
-    body: JSON.stringify({ messages, context_event: contextEvent }),
+    body: JSON.stringify({ room_id: roomId, messages, context_event: contextEvent }),
   }, { summary: "Summary unavailable." });
   return data.summary;
+}
+
+export async function analyzeChat(roomId: string, eventName?: string): Promise<any> {
+  console.log(`[API] analyzeChat: Triggering for room ${roomId}`);
+  const data = await apiFetch<any>('/chat/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ room_id: roomId, event_name: eventName }),
+  });
+  console.log('[API] analyzeChat result received:', { 
+    success: !!data.analysis, 
+    keys: data.analysis ? Object.keys(data.analysis) : 'NONE' 
+  });
+  return data.analysis;
+}
+
+export async function askAi(roomId: string, question: string, userId: string, eventName?: string): Promise<{ answer: string; context_used: boolean }> {
+  return await apiFetch<any>('/chat/ask', {
+    method: 'POST',
+    body: JSON.stringify({ room_id: roomId, question, user_id: userId, event_name: eventName }),
+  });
+}
+
+export async function fetchAiHistory(roomId: string): Promise<AiMessage[]> {
+  try {
+    const data = await apiFetch<any>(`/chat/ask/history/${roomId}`, undefined);
+    return Array.isArray(data.history) ? data.history : [];
+  } catch (e) {
+    console.warn('[eventPredictionService] fetchAiHistory failed:', e);
+    return [];
+  }
+}
+
+export async function clearAiHistory(roomId: string): Promise<boolean> {
+  try {
+    const data = await apiFetch<any>(`/chat/ask/history/${roomId}`, {
+      method: 'DELETE',
+    });
+    return data.success === true;
+  } catch (e) {
+    console.warn('[eventPredictionService] clearAiHistory failed:', e);
+    return false;
+  }
 }
 
 export async function markRoomRead(roomId: string, userId: string): Promise<void> {

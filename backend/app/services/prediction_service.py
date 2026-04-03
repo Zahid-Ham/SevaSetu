@@ -67,14 +67,15 @@ Return ONLY a valid JSON array of exactly 5 objects. No markdown, no explanation
 """
 
     try:
-        print(f"\n--- [Gemini Prediction Engine] Starting for area: {area} ---")
-        print(f"--- [Gemini Prediction Engine] Historical Summary Summary: ---\n{historical_summary[:500]}...") # Log first 500 chars
+        print(f"\n--- [Gemini Prediction Engine] Starting for area: {area} (Month: {month}) ---")
+        print(f"[Gemini Prediction Engine] Prompt Length: {len(prompt)} chars")
+        print(f"[Gemini Prediction Engine] Historical Data Summary Trace: {historical_summary[:200]}...")
 
         response = model.generate_content(prompt)
         text = response.text.strip()
         
-        print("\n--- [Gemini Prediction Engine] Raw AI Response received ---")
-        print(text[:300] + "..." if len(text) > 300 else text)
+        print(f"\n--- [Gemini Prediction Engine] SUCCESS. Response Type: {type(response).__name__}")
+        print(f"[Gemini Prediction Engine] Raw Response (preview): {text[:200]}...")
 
         # Strip markdown code fences if present
         if text.startswith("```json"):
@@ -85,7 +86,7 @@ Return ONLY a valid JSON array of exactly 5 objects. No markdown, no explanation
             text = text.rsplit("```", 1)[0]
 
         predictions = json.loads(text.strip())
-        print(f"--- [Gemini Prediction Engine] Successfully parsed {len(predictions)} predictions ---")
+        print(f"--- [Gemini Prediction Engine] Successfully parsed {len(predictions)} objects ---")
 
         # Enrich each prediction with a generated ID and metadata
         for i, pred in enumerate(predictions):
@@ -96,7 +97,10 @@ Return ONLY a valid JSON array of exactly 5 objects. No markdown, no explanation
         return predictions
 
     except Exception as e:
-        print(f"--- [Gemini Prediction Engine] ERROR: {e} ---")
+        print(f"\n!!! [Gemini Prediction Engine ERROR] !!!")
+        print(f"Error Detail: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return _fallback_predictions(area)
 
 

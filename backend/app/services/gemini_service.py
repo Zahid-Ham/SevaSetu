@@ -98,6 +98,64 @@ Return ONLY valid JSON in this exact structure, nothing else:
     }
 
     try:
+        print("\n--- [Gemini Vision Engine] Processing document extraction ---")
+        print(f"[Gemini Vision Engine] MIME Type: {mime_type}, Bytes: {len(file_bytes)}")
+        
+        response = model.generate_content([prompt, file_part])
+        text_content = response.text.strip()
+        
+        print("\n--- [Gemini Vision Engine] SUCCESS. Raw Response preview: ---")
+        print(text_content[:300] + "..." if len(text_content) > 300 else text_content)
+
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+
+        data = json.loads(text_content.strip())
+        print(f"[Gemini Vision Engine] Parsed JSON successfully. Category: {data.get('primary_category')}")
+        return data
+    except Exception as e:
+        print(f"\n!!! [Gemini Vision ERROR] !!!")
+        print(f"Error Detail: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"description": "Could not parse document correctly.", "error": str(e)}
+
+def analyze_multimodal_attachment(file_bytes: bytes, mime_type: str, mission_name: str, file_name: str) -> dict:
+    """
+    Direct multimodal analysis of PDFs and Images using Gemini 2.0 Flash.
+    Bypasses Document AI and Service Account key dependencies.
+    """
+    prompt = f"""
+    You are a strategic NGO Mission Auditor for SevaSetu.
+    You are analyzing an attachment (PDF or Image) named '{file_name}' for the mission '{mission_name}'.
+
+    YOUR TASK:
+    1. READ the entire document/image content (even tables, names, and dates).
+    2. Identify exactly what this is (e.g., 'Ground report', 'Participant list', 'Notice').
+    3. Summarize the key data in 2-3 specific sentences.
+    4. Evaluate its RELEVANCE specifically to the mission '{mission_name}'.
+    5. If relevant, explain the impact. If irrelevant, provide a professional explanation.
+
+    Return ONLY valid JSON in this exact structure:
+    {{
+      "file_summary": "Deep summary of extracted content",
+      "relevance_score": 1-10,
+      "relevance_explanation": "Strategic connection to '{mission_name}'",
+      "action_recommended": "Specific recommendation for the supervisor"
+    }}
+    """
+    
+    file_part = {
+        "mime_type": mime_type,
+        "data": base64.b64encode(file_bytes).decode("utf-8")
+    }
+
+    try:
+        print(f"\n--- [Gemini Multimodal Engine] Directly analyzing '{file_name}' ---")
         response = model.generate_content([prompt, file_part])
         text_content = response.text.strip()
         
@@ -108,11 +166,15 @@ Return ONLY valid JSON in this exact structure, nothing else:
             text_content = text_content[3:]
             text_content = text_content.rsplit("```", 1)[0]
 
-        data = json.loads(text_content.strip())
-        return data
+        return json.loads(text_content.strip())
     except Exception as e:
-        print(f"Error parsing Gemini response: {e}")
-        return {"description": "Could not parse document correctly."}
+        print(f"!!! [Gemini Multimodal ERROR] {file_name}: {e}")
+        return {
+            "file_summary": "Multimodal analysis failed.",
+            "relevance_score": 5,
+            "relevance_explanation": "AI could not process this file due to an error.",
+            "action_recommended": "Manual audit required."
+        }
 
 def generate_field_report_from_multimedia(photo_bytes: bytes, audio_transcript: str, location: str) -> dict:
     """
@@ -160,9 +222,14 @@ Return ONLY valid JSON:
     }
 
     try:
+        print("\n--- [Gemini Field Report Engine] Synthesizing multimedia report ---")
+        print(f"[Gemini Field Report Engine] Transcript Length: {len(audio_transcript)}")
+        
         response = model.generate_content([prompt, file_part])
         text_content = response.text.strip()
         
+        print("\n--- [Gemini Field Report Engine] SUCCESS ---")
+
         if text_content.startswith("```json"):
             text_content = text_content[7:]
             text_content = text_content.rsplit("```", 1)[0]
@@ -173,5 +240,8 @@ Return ONLY valid JSON:
         data = json.loads(text_content.strip())
         return data
     except Exception as e:
-        print(f"Error parsing Field Report: {e}")
-        return {"description": audio_transcript, "precise_location": location}
+        print(f"\n!!! [Gemini Field Report ERROR] !!!")
+        print(f"Error Detail: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"description": audio_transcript, "precise_location": location, "error": str(e)}
