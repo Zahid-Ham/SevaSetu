@@ -24,7 +24,7 @@ const getBaseUrl = () => {
   return 'http://192.168.0.102:8000'; 
 };
 
-const BASE_URL = getBaseUrl();
+export const BASE_URL = getBaseUrl();
 
 // Set to true if you are offline or the backend is down during the demo
 const USE_MOCK_ONLY = false;
@@ -397,10 +397,13 @@ export async function sendMessage(payload: {
   });
 }
 
-export async function fetchMessages(roomId: string, userId?: string): Promise<ChatMessage[]> {
+export async function fetchMessages(roomId: string, userId?: string, since?: string): Promise<ChatMessage[]> {
   try {
-    const queryParam = userId ? `?user_id=${userId}` : '';
-    const data = await apiFetch<any>(`/chat/messages/${roomId}${queryParam}`, undefined);
+    let url = `/chat/messages/${roomId}?`;
+    if (userId) url += `user_id=${encodeURIComponent(userId)}&`;
+    if (since) url += `since=${encodeURIComponent(since)}&`;
+    
+    const data = await apiFetch<any>(url, undefined);
     return Array.isArray(data.messages) ? data.messages : [];
   } catch (e) {
     console.warn('[eventPredictionService] fetchMessages failed:', e);

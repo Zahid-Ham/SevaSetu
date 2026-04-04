@@ -7,6 +7,7 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.utils
 import cloudinary.api
+from datetime import datetime
 import os
 import time
 import requests as http_requests
@@ -14,6 +15,7 @@ from dotenv import load_dotenv
 
 from app.config.firebase_config import db # type: ignore
 from firebase_admin import firestore
+from app.services.chat_websocket_manager import manager as ws_manager # type: ignore
 from app.services.chat_analysis_service import (
     analyze_chat, 
     build_chat_chunks, 
@@ -359,6 +361,11 @@ async def send_message(req: SendMessageRequest):
         f"last_read_by.{req.sender_id}": firestore.SERVER_TIMESTAMP,
     }
     
+    # 1.1 Increment UNREAD count for the RECEIVER
+    # We identify who is NOT the sender
+    receiver_id = req.supervisor_id if req.sender_id == req.volunteer_id else req.volunteer_id
+    room_meta[f"unread_counts.{receiver_id}"] = firestore.Increment(1)
+
     if req.volunteer_name:
         room_meta["volunteer_name"] = req.volunteer_name
     if req.supervisor_name:
@@ -366,9 +373,23 @@ async def send_message(req: SendMessageRequest):
     if req.event_name:
         room_meta["event_name"] = req.event_name
 
+    # 🎯 CRITICAL: Update the room document with the latest message preview and timestamp
+    # This is what handles sorting in the chat list!
     room_ref.set(room_meta, merge=True)
 
-    # 2. Add Message to subcollection
+    # 1.2 Send REAL-TIME NOTIFICATION via WebSocket
+    # This prevents the receiver from having to poll!
+    # We include partial data for immediate UI update
+    notification_data = {
+        **msg_data,
+        "room_id": room_id,
+        "sender_id": req.sender_id,
+        "id": "temp_" + str(int(time.time())),
+        "timestamp": datetime.now().isoformat()
+    }
+    await ws_manager.notify_receiver(receiver_id, notification_data)
+
+    # 2. Add Message to subcollection (PERMANENT STORAGE)
     room_ref.collection("messages").add(msg_data)
 
     return {"success": True, "room_id": room_id}
@@ -384,7 +405,8 @@ async def mark_room_read(room_id: str, user_id: str):
         # Using .update() with a dot-notated key correctly updates 
         # a nested field without overwriting the entire map.
         room_ref.update({
-            f"last_read_by.{user_id}": firestore.SERVER_TIMESTAMP
+            f"last_read_by.{user_id}": firestore.SERVER_TIMESTAMP,
+            f"unread_counts.{user_id}": 0
         })
         return {"success": True}
     except Exception as e:
@@ -424,14 +446,31 @@ async def delete_message(room_id: str, message_id: str, mode: str = "for_me", us
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/chat/messages/{room_id}")
-async def get_messages(room_id: str, limit: int = 50, user_id: str = ""):
+async def get_messages(
+    room_id: str, 
+    limit: int = 50, 
+    user_id: str = "", 
+    since: Optional[str] = None
+):
     """
     Fetches latest messages for a given room.
+    Supports delta fetching via 'since' (timestamp string).
     Filters out messages deleted for the requesting user.
     """
     try:
+        from datetime import datetime
         messages_ref = db.collection("chats").document(room_id).collection("messages")
-        docs = messages_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()
+        
+        query = messages_ref.order_by("timestamp", direction=firestore.Query.DESCENDING)
+        
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+                query = query.where("timestamp", ">", since_dt)
+            except Exception as e:
+                print(f"[Get Messages] Invalid since timestamp: {since} | {e}")
+
+        docs = query.limit(limit).stream()
         
         msgs = []
         for doc in docs:
@@ -466,19 +505,19 @@ async def get_user_rooms(user_id: str):
             d = r.to_dict()
             d["id"] = r.id
             # ── Optimized Unread Check ──
-            # Instead of querying all messages (expensive), we use room metadata.
-            # If the last message was from someone else AND was updated after we last read it.
-            last_read_by = d.get("last_read_by", {})
-            last_read_ts = last_read_by.get(user_id)
-            updated_at_ts = d.get("updated_at") # This is still a datetime object here
-            last_sender_id = d.get("last_sender_id")
+            # Use the pre-computed persistent unread count for this user
+            unread_counts = d.get("unread_counts", {})
+            unread_count = unread_counts.get(user_id, 0)
             
-            unread_count = 0
-            if last_sender_id != user_id and updated_at_ts:
-                # If we've never read it, or it was updated after our last read
-                # Compare datetimes BEFORE converting them to strings/ISO format.
-                if not last_read_ts or updated_at_ts > last_read_ts:
-                    unread_count = 1
+            # Fallback for binary status (backward compatibility)
+            if unread_count == 0:
+                last_read_by = d.get("last_read_by", {})
+                last_read_ts = last_read_by.get(user_id)
+                updated_at_ts = d.get("updated_at")
+                last_sender_id = d.get("last_sender_id")
+                if last_sender_id != user_id and updated_at_ts:
+                    if not last_read_ts or updated_at_ts > last_read_ts:
+                        unread_count = 1
             
             # Now safe to convert to string for JSON serialization
             if d.get("updated_at"):
@@ -695,7 +734,28 @@ async def get_ai_history(room_id: str):
         return {"success": True, "history": history}
     except Exception as e:
         print(f"[AI History Error] {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch AI history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch AI history: {str(e)}")# ── WebSocket Real-time Tunnel ──────────────────────────────────────────
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@router.websocket("/chat/ws/chat/{user_id}")
+async def chat_websocket_endpoint(websocket: WebSocket, user_id: str):
+    """
+    WebSocket tunnel for real-time chat updates.
+    Allows the backend to PUSH messages to the frontend vs polling.
+    """
+    await ws_manager.connect(user_id, websocket)
+    try:
+        while True:
+            # We keep the connection alive but don't expect client input for now
+            # (Clients send via RESTPOST /chat/send for robustness)
+            data = await websocket.receive_text()
+            # Handle heartbeat or client-to-server WS messages here if needed
+    except WebSocketDisconnect:
+        ws_manager.disconnect(user_id, websocket)
+    except Exception as e:
+        print(f"[WS ERROR] {e}")
+        ws_manager.disconnect(user_id, websocket)
 
 @router.delete("/chat/ask/history/{room_id}")
 async def clear_ai_history(room_id: str):

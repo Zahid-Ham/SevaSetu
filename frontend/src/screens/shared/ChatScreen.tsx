@@ -485,6 +485,7 @@ export const ChatScreen = () => {
     event_name = 'General Inquiry'
   } = route.params || {};
 
+
   const { role } = useAuthStore();
   const { volunteerId: currentVolunteerId, volunteerProfile } = useEventStore();
   
@@ -497,8 +498,7 @@ export const ChatScreen = () => {
     messages, 
     loadMessages, 
     loadingMessages,
-    sendMessage, 
-    startPolling, 
+    sendMessage,
     resetChat,
     generateSummary,
     summary,
@@ -512,7 +512,9 @@ export const ChatScreen = () => {
     clearAiHistory,
     analysis,
     loadingAnalysis,
-    analyzeChat
+    analyzeChat,
+    connectWebSocket,
+    disconnectWebSocket
   } = useChatStore();
 
   useEffect(() => {
@@ -559,14 +561,12 @@ export const ChatScreen = () => {
   useEffect(() => {
     if (!roomId || !currentUserId) return;
     
+    // 1. Initial load (cached + deltas)
     loadMessages(roomId, currentUserId);
-    // Mark as read in background — don't await, don't block message load
     markRoomRead(roomId, currentUserId).catch(() => {});
 
-    const cleanup = startPolling(roomId, currentUserId);
-    return () => {
-      cleanup();
-    };
+    // 2. Connect Real-time listener (global socket)
+    connectWebSocket(currentUserId);
   }, [roomId, currentUserId]);
 
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from '../api/eventPredictionService';
 import { ChatMessage, ChatRoom, AiMessage } from '../api/eventPredictionService';
+import { chatCache } from '../storage/chatCache';
 
 interface ChatState {
   // Data
@@ -18,33 +19,18 @@ interface ChatState {
   aiHistory: AiMessage[];
   loadingAskAi: boolean;
   loadingAiHistory: boolean;
+  
+  // Real-time
+  socket: WebSocket | null;
 
   // Actions
   loadRooms: (userId: string) => Promise<void>;
   loadMessages: (roomId: string, userId?: string) => Promise<void>;
-  sendMessage: (payload: {
-    volunteer_id: string;
-    supervisor_id: string;
-    event_id?: string;
-    sender_id: string;
-    text: string;
-    volunteer_name?: string;
-    supervisor_name?: string;
-    event_name?: string;
-    type?: string;
-    metadata?: any;
-    // Media
-    file_url?: string;
-    file_type?: string;
-    file_name?: string;
-    file_size?: number;
-    file_public_id?: string;
-    file_version?: string;
-    file_extension?: string;
-  }) => Promise<void>;
+  sendMessage: (payload: any) => Promise<void>;
   
-  // Real-time Simulation (Polling)
-  startPolling: (roomId: string, userId?: string) => () => void; // Returns cleanup function
+  // Real-time WebSocket
+  connectWebSocket: (userId: string) => void;
+  disconnectWebSocket: () => void;
   
   // Message Management
   markRoomRead: (roomId: string, userId: string) => Promise<void>;
@@ -75,6 +61,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   aiHistory: [],
   loadingAskAi: false,
   loadingAiHistory: false,
+  socket: null,
 
   loadRooms: async (userId: string) => {
     set({ loadingRooms: true });
@@ -89,12 +76,103 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadMessages: async (roomId: string, userId?: string) => {
     set({ loadingMessages: true, activeRoomId: roomId });
     try {
-      const messages = await api.fetchMessages(roomId, userId);
-      set({ messages });
-      // Also load AI history for the room
+      // 1. First, load from Cache for instant UI
+      const cached = await chatCache.loadMessages(roomId);
+      set({ messages: cached });
+
+      // 2. Determine when we last saw a message
+      const lastTs = cached.length > 0 ? cached[cached.length - 1].timestamp : undefined;
+
+      // 3. Fetch only Deltas (New messages since the cache)
+      const deltas = await api.fetchMessages(roomId, userId, lastTs);
+      
+      if (deltas.length > 0) {
+        // Append deltas to cached messages
+        const updated = [...cached, ...deltas];
+        set({ messages: updated });
+        // Update Cache
+        await chatCache.saveMessages(roomId, updated);
+      }
+      
+      // Also load AI history 
       get().loadAiHistory(roomId);
     } finally {
       set({ loadingMessages: false });
+    }
+  },
+
+  connectWebSocket: (userId: string) => {
+    // Avoid double connection
+    if (get().socket) return;
+
+    // We use the same base IP as the REST API
+    const baseUrl = api.BASE_URL; // Assuming it's exported or accessible
+    const wsUrl = baseUrl.replace('http', 'ws') + `/chat/ws/chat/${userId}`;
+    
+    console.log(`[useChatStore] Connecting WebSocket: ${wsUrl}`);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'new_message') {
+          const newMsg = payload.data;
+          const { activeRoomId, messages } = get();
+
+          // Only append if it belongs to the current open room
+          if (activeRoomId === newMsg.room_id) {
+            // Check if already exists (prevent duplicates from REST + WS racing)
+            if (!messages.find(m => m.id === newMsg.id)) {
+              const updated = [...messages, newMsg];
+              set({ messages: updated });
+              if (activeRoomId) {
+                // Also update cache in background
+                chatCache.saveMessages(activeRoomId, updated);
+              }
+            }
+          } else {
+            // 🏷️ If it's for another room, update the room list LIVE
+            set((state) => {
+              const updatedRooms = state.rooms.map(r => {
+                if (r.id === newMsg.room_id) {
+                  return { 
+                    ...r, 
+                    unread_count: (r.unread_count || 0) + 1, 
+                    last_message: newMsg.type === 'text' ? newMsg.text : `${newMsg.type === 'image' ? '📷 Image' : '📄 Document'}`,
+                    updated_at: newMsg.timestamp
+                  };
+                }
+                return r;
+              });
+
+              // Re-sort: Move the updated room to the top
+              updatedRooms.sort((a, b) => 
+                new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+              );
+
+              return { rooms: updatedRooms };
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[useChatStore] WebSocket message error:', e);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('[useChatStore] WebSocket closed. Retrying in 5s...');
+      set({ socket: null });
+      setTimeout(() => get().connectWebSocket(userId), 5000);
+    };
+
+    set({ socket: ws });
+  },
+
+  disconnectWebSocket: () => {
+    const { socket } = get();
+    if (socket) {
+      socket.close();
+      set({ socket: null });
     }
   },
 
@@ -102,35 +180,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ sending: true });
     try {
       const { room_id } = await api.sendMessage(payload);
-      // Let backend handle room metadata update via payload
-      const msgs = await api.fetchMessages(room_id);
-      set({ messages: msgs, activeRoomId: room_id });
+      
+      // OPTIMISTIC UI: Add the message locally without waiting for WebSocket
+      // This is especially important since WS connection might be rejected/flaky.
+      const tempMsg: ChatMessage = {
+        id: 'send_' + Date.now(), // Temp ID until real sync
+        sender_id: payload.sender_id,
+        text: payload.text,
+        type: payload.type || 'text',
+        timestamp: new Date().toISOString(),
+        file_url: payload.file_url,
+        file_type: payload.file_type,
+        file_name: payload.file_name,
+        file_size: payload.file_size
+      };
+
+      set((state) => {
+        const updated = [...state.messages, tempMsg];
+        chatCache.saveMessages(room_id, updated);
+        return { messages: updated };
+      });
     } finally {
       set({ sending: false });
     }
-  },
-
-  startPolling: (roomId: string, userId?: string) => {
-    console.log(`[useChatStore] Starting polling for room: ${roomId}`);
-    const interval = setInterval(async () => {
-      // Only fetch if this is still the active room
-      if (get().activeRoomId === roomId) {
-        try {
-          const msgs = await api.fetchMessages(roomId, userId);
-          // Only update if count changed (basic diffing)
-          if (msgs.length !== get().messages.length) {
-            set({ messages: msgs });
-          }
-        } catch (e) {
-          console.warn('[useChatStore] Polling error:', e);
-        }
-      }
-    }, 3000); // 3 seconds interval
-
-    return () => {
-      console.log(`[useChatStore] Cleaning up polling for room: ${roomId}`);
-      clearInterval(interval);
-    };
   },
 
   generateSummary: async (roomId: string, eventName?: string) => {
@@ -142,7 +214,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content: m.text,
         timestamp: m.timestamp
       }));
-      
       const summaryText = await api.summarizeChat(messages, eventName, roomId);
       set({ summary: summaryText });
     } finally {
@@ -154,9 +225,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ loadingAnalysis: true, analysis: null });
     try {
       const analysis = await api.analyzeChat(roomId, eventName);
-      console.log('[STORE] analyzeChat success. Saving data keys:', 
-        analysis ? Object.keys(analysis) : 'NULL'
-      );
       set({ analysis });
     } finally {
       set({ loadingAnalysis: false });
@@ -167,7 +235,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ loadingAskAi: true });
     try {
       const result = await api.askAi(roomId, question, userId, eventName);
-      // Append temporary object to history for immediate UI update
       const newInteraction: AiMessage = {
         id: Math.random().toString(36).substr(2, 9),
         question,
@@ -209,7 +276,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   markRoomRead: async (roomId: string, userId: string) => {
     try {
       await api.markRoomRead(roomId, userId);
-      // Immediately clear unread count in locally cached rooms
       set((state) => ({
         rooms: state.rooms.map((r) => 
           r.id === roomId ? { ...r, unread_count: 0 } : r
@@ -223,7 +289,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   deleteMessage: async (roomId: string, messageId: string, mode: 'for_me' | 'for_everyone', userId: string) => {
     try {
       await api.deleteMessage(roomId, messageId, mode, userId);
-      // Immediately update local messages state
       if (mode === 'for_everyone') {
         set((state) => ({
           messages: state.messages.map((m) => 
@@ -231,11 +296,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           )
         }));
       } else {
-        // for_me: simply remove from local stream for this user
         set((state) => ({
           messages: state.messages.filter((m) => m.id !== messageId)
         }));
       }
+      // Update cache after deletion
+      chatCache.saveMessages(roomId, get().messages);
     } catch (e) {
       console.error('[useChatStore] deleteMessage error:', e);
     }
