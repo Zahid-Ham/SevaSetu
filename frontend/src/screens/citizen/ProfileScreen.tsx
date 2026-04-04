@@ -4,9 +4,12 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { AppHeader, UserAvatar, PrimaryButton } from '../../components';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export const ProfileScreen = () => {
   const logout = useAuthStore((state) => state.logout);
+  const navigation = useNavigation<any>();
   const userName = "Zahid Khan";
 
   const renderOption = (icon: any, title: string, subtitle: string, onPress?: () => void) => (
@@ -55,6 +58,31 @@ export const ProfileScreen = () => {
             <View style={styles.separator} />
             {renderOption('shield', 'Guidelines', 'Community standards, Safety')}
           </View>
+        </View>
+
+        {/* Volunteer CTA */}
+        <View style={styles.section}>
+          <LinearGradient
+            colors={[colors.primaryGreen, '#1B5E20']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.volunteerCard}
+          >
+            <View style={styles.volunteerIconBg}>
+              <Ionicons name="heart" size={24} color={colors.primaryGreen} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.volunteerTitle}>Become a Volunteer</Text>
+              <Text style={styles.volunteerSub}>Support your community and join an NGO to make a real difference.</Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.applyBtn}
+              onPress={() => navigation.navigate('VolunteerApplication')}
+            >
+              <Text style={styles.applyBtnText}>Apply Now</Text>
+              <Feather name="arrow-right" size={16} color={colors.primaryGreen} />
+            </TouchableOpacity>
+          </LinearGradient>
         </View>
         
         <TouchableOpacity 
@@ -189,5 +217,50 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xl,
     opacity: 0.5,
+  },
+  volunteerCard: {
+    padding: spacing.lg,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    shadowColor: colors.primaryGreen,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  volunteerIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  volunteerTitle: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  volunteerSub: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  applyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 10,
+    gap: 4,
+  },
+  applyBtnText: {
+    color: colors.primaryGreen,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

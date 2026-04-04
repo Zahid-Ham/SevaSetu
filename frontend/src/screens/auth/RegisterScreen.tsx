@@ -12,7 +12,7 @@ export const RegisterScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'CITIZEN' | 'VOLUNTEER' | 'SUPERVISOR'>('CITIZEN');
+  const [selectedRole, setSelectedRole] = useState<'CITIZEN' | 'SUPERVISOR'>('CITIZEN');
   const [agreed, setAgreed] = useState(false);
   const [showRoleSelector, setShowRoleSelector] = useState(false);
   
@@ -111,7 +111,7 @@ export const RegisterScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
               
               {showRoleSelector && (
                 <View style={styles.dropdownOptionsList}>
-                  {(['CITIZEN', 'VOLUNTEER', 'SUPERVISOR'] as const).map(r => (
+                  {(['CITIZEN', 'SUPERVISOR'] as const).map(r => (
                     <TouchableOpacity 
                       key={r}
                       style={[styles.dropdownOption, selectedRole === r && styles.dropdownOptionSelected]}
