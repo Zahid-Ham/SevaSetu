@@ -15,10 +15,12 @@ import requests
 import base64
 import cloudinary # type: ignore
 import cloudinary.utils # type: ignore
-from app.services.gemini_service import process_document_and_extract, analyze_multimodal_attachment # type: ignore
+from app.services.gemini_service import process_document_and_extract, analyze_ocr_content # type: ignore
+from app.services.document_ai_service import process_document # type: ignore
 
 print("\n" + "="*50)
-print("[SYSTEM] MISSION AUDIT ENGINE v2.1 (CLOUDINARY BYPASS) ACTIVE")
+print("[SYSTEM] MISSION AUDIT ENGINE v2.3 (FIXED ARGUMENTS) ACTIVE")
+print("[SYSTEM] 🔥 FORCING NEW DOCUMENT AI OCR FOR ALL ASSETS")
 print("="*50 + "\n")
 
 # Configure Cloudinary for Signed URL Bypass
@@ -30,7 +32,7 @@ cloudinary.config(
 )
 
 # Using Flash for speed and cost-effectiveness in analysis
-model = genai.GenerativeModel('gemini-2.5-flash') # Updated to gemini-2.5-flash per user request
+model = genai.GenerativeModel('gemini-2.5-flash') # User specifically wants gemini-2.5-flash
 embedding_model = "models/gemini-embedding-001"
 
 def retry_with_backoff(func, *args, max_retries=5, initial_delay=1, **kwargs):
@@ -58,13 +60,33 @@ def retry_with_backoff(func, *args, max_retries=5, initial_delay=1, **kwargs):
                 raise e
     return func(*args, **kwargs) # One last try
 
-async def get_document_intelligence(file_url: str, mime_type: str, file_name: str, mission_name: str = "") -> str:
+async def get_document_intelligence(file_url: str, file_name: str, mime_type: str, mission_name: str = "", file_id: str = None) -> str:
     """
-    Uses Gemini Vision to 'read' the document and extract its purpose for the mission.
-    Caches intelligence to avoid re-processing.
+    Step 1: Check pre-computed summaries (Upload-time processing).
+    Step 2: Fallback to active OCR if not found.
     """
     try:
-        # Check cache (Simplified Firestore cache)
+        # 1. Check NEW attachment_summaries (Pre-computed at upload time)
+        actual_id = file_id or ""
+        if not actual_id and "cloudinary" in file_url:
+            # Fallback: Extract from URL if possible
+            try:
+                actual_id = file_url.split("/upload/")[-1].split("/", 1)[-1].rsplit(".", 1)[0].replace("/", "_")
+            except: pass
+            
+        if actual_id:
+            summary_ref = db.collection("attachment_summaries").document(actual_id)
+            summary_doc = summary_ref.get()
+            if summary_doc.exists:
+                data = summary_doc.to_dict()
+                if data.get("status") == "success":
+                    analysis = data.get("analysis", {})
+                    summary = analysis.get("file_summary", "")
+                    doc_type = analysis.get("doc_type", "Document")
+                    print(f"[Intelligence] ✅ PRE-COMPUTED HIT: {file_name} ({doc_type})")
+                    return f"This is a {doc_type}. {summary}"
+
+        # 2. Check OLD cache (Legacy)
         cache_id = base64.b64encode(file_url.encode()).decode()[:64].replace("/", "_")
         cache_ref = db.collection("attachment_intelligence").document(cache_id)
         cached_doc = cache_ref.get()
@@ -72,7 +94,7 @@ async def get_document_intelligence(file_url: str, mime_type: str, file_name: st
         if cached_doc.exists:
             return cached_doc.to_dict().get("intelligence", "")
 
-        print(f"[Intelligence] Processing new attachment: {file_name}")
+        print(f"[Intelligence] 🔄 No summary found. Falling back to active OCR for: {file_name}")
         
         # Normalize MIME type for Gemini
         processed_mime = mime_type
@@ -97,20 +119,29 @@ async def get_document_intelligence(file_url: str, mime_type: str, file_name: st
                         path_parts = parts[1].split("/", 1)
                         full_path = path_parts[1] if len(path_parts) > 1 else path_parts[0]
                         
-                        # Remove extension for public_id and keep it for the format argument
-                        ext_parts = full_path.rsplit(".", 1)
-                        public_id = ext_parts[0]
-                        extension = ext_parts[1] if len(ext_parts) > 1 else ""
-                        
+                        # Correct extraction for RAW vs IMAGE
                         r_type = "raw" if "/raw/" in sanitized_url else "image"
                         
-                        # Generate 1-minute signed URL - 'extension' is the required 'format' argument
+                        if r_type == "raw":
+                            # For raw files (PDFs, docs), the public_id IS the full path with extension
+                            # And the format argument must be an empty string
+                            public_id = full_path
+                            extension = ""
+                        else:
+                            # For images, split into id and extension (format)
+                            ext_parts = full_path.rsplit(".", 1)
+                            public_id = ext_parts[0]
+                            extension = ext_parts[1] if len(ext_parts) > 1 else "jpg"
+                        
+                        print(f"[Cloudinary Bypass] Generating {r_type} sign for ID: {public_id}, ext: {extension}...")
+                        
+                        # Generate signed URL
                         authorized_url = cloudinary.utils.private_download_url(
                             public_id,
                             extension,
                             resource_type=r_type,
                             type="upload",
-                            expires_at=int(time.time()) + 60
+                            expires_at=int(time.time()) + 900 # 15 minutes for robustness
                         )
                         
                         print(f"[Cloudinary Bypass] Attempting fetch with signature...")
@@ -127,15 +158,20 @@ async def get_document_intelligence(file_url: str, mime_type: str, file_name: st
             print(f"!!! [Intelligence ERROR] HTTP Request CRASH: {e}")
             return f"Network error during fetch: {str(e)}"
 
-        # 2. Extract intelligence using native Gemini Multimodal analysis
-        print(f"[MISSION AUDIT] Analysis Stage: Native Gemini Multimodal Audit for '{file_name}' (MIME: {processed_mime})...")
-        result = analyze_multimodal_attachment(response.content, mime_type=processed_mime, mission_name=mission_name, file_name=file_name)
+        # 2. Extract RAW TEXT using Google Document AI (Restored High-Fidelity OCR)
+        print(f"[MISSION AUDIT] Step 1: Starting Google Document AI OCR for '{file_name}'...")
+        ocr_text = process_document(response.content, mime_type=processed_mime)
+        print(f"[MISSION AUDIT] Step 1 SUCCESS: Extracted {len(ocr_text)} characters.")
+
+        # 3. Analyze content using Gemini Reasoning (Strategic Audit)
+        print(f"[MISSION AUDIT] Step 2: Gemini analyzing strategic impact...")
+        result = analyze_ocr_content(ocr_text, mission_name=mission_name, file_name=file_name)
         
         summary = result.get("file_summary", "Summary unavailable.")
         relevance = result.get("relevance_explanation", "Relevance mapping unavailable.")
         
         intelligence = f"{summary} STRATEGIC RELEVANCE: {relevance}"
-        print(f"[MISSION AUDIT] SUCCESS. Relevance Score: {result.get('relevance_score', 0)}/10")
+        print(f"[MISSION AUDIT] Step 2 SUCCESS. Relevance Score: {result.get('relevance_score', 0)}/10")
         
         # 3. Cache it
         cache_ref.set({
@@ -184,14 +220,35 @@ async def analyze_chat(messages: List[Dict[str, Any]], event_name: str = "") -> 
 
     # 1. Gather Intelligence on all attachments
     intel_map = {}
+    print(f"[MISSION AUDIT] Checking {len(mission_messages)} messages for attachments...")
+    
     for m in mission_messages:
-        m_type = m.get("type")
-        file_url = m.get("file_url") or m.get("url") or m.get("content_url")
+        # Robustly find type and url (handles camelCase and SnakeCase)
+        m_type = m.get("type", "").lower()
+        file_url = (m.get("file_url") or m.get("fileUrl") or 
+                   m.get("url") or m.get("content_url") or 
+                   m.get("contentUrl"))
         
-        if m_type in ["image", "pdf"] and file_url:
-            file_name = m.get("file_name", "document")
-            intel = await get_document_intelligence(file_url, m_type, file_name, event_name)
+        # Normalize type (image/jpeg -> image, pdf -> pdf, etc)
+        is_attachment = False
+        if "image" in m_type: 
+            m_type = "image"
+            is_attachment = True
+        elif "pdf" in m_type or "application/pdf" in m_type:
+            m_type = "pdf"
+            is_attachment = True
+            
+        if is_attachment and file_url:
+            file_name = m.get("file_name") or m.get("fileName") or "document"
+            file_public_id = (m.get("file_public_id") or m.get("filePublicId") or 
+                             m.get("public_id") or "").replace("/", "_")
+            
+            print(f"[MISSION AUDIT] Processing attachment: {file_name} ({m_type})")
+            # Corrected argument order (file_url, file_name, mime_type, mission_name, file_id)
+            intel = await get_document_intelligence(file_url, file_name, m_type, event_name, file_public_id)
             intel_map[file_name] = intel
+        elif file_url:
+             print(f"DEBUG: Found URL but skipped. Type was: {m_type}")
 
     # 2. Format conversation with real intelligence
     convo_text = ""

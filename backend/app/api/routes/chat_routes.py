@@ -21,6 +21,7 @@ from app.services.chat_analysis_service import (
     semantic_search
 )
 from app.services.chat_report_service import generate_chat_report_pdf
+from app.services.attachment_intelligence_service import analyze_attachment_on_upload # type: ignore
 
 load_dotenv()
 
@@ -224,7 +225,7 @@ Keep it professional and brief.
 # ── File Upload (Signed — for PDFs and documents) ───────────────────────────
 
 @router.post("/chat/upload-file")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Uploads a file (PDF, image) to Cloudinary using a SIGNED upload.
     Signed uploads allow setting access_mode=public, which is required
@@ -249,6 +250,17 @@ async def upload_file(file: UploadFile = File(...)):
             filename_override=file.filename,
         )
         
+        # ── Trigger Background Analysis (Upload-Time Processing) ──
+        # We use a sanitized public_id as the lookup key for the summary
+        file_id = result["public_id"].replace("/", "_")
+        background_tasks.add_task(
+            analyze_attachment_on_upload, 
+            file_bytes, 
+            file.content_type or "application/pdf", 
+            file.filename, 
+            file_id
+        )
+
         return {
             "success": True,
             "url": result["secure_url"],

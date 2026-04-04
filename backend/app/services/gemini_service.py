@@ -11,6 +11,7 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
 
 genai.configure(api_key=GEMINI_API_KEY)
+# Initialize Gemini with 2.5-Flash for strategic missions
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 def process_document_and_extract(file_bytes: bytes, mime_type: str) -> dict:
@@ -124,37 +125,94 @@ Return ONLY valid JSON in this exact structure, nothing else:
         traceback.print_exc()
         return {"description": "Could not parse document correctly.", "error": str(e)}
 
-def analyze_multimodal_attachment(file_bytes: bytes, mime_type: str, mission_name: str, file_name: str) -> dict:
+def analyze_ocr_content(ocr_text: str, mission_name: str, file_name: str) -> dict:
     """
-    Direct multimodal analysis of PDFs and Images using Gemini 2.0 Flash.
-    Bypasses Document AI and Service Account key dependencies.
+    Strategic reasoning over OCR-extracted text.
+    Determines relevance and provides mission-aligned summaries.
     """
-    prompt = f"""
-    You are a strategic NGO Mission Auditor for SevaSetu.
-    You are analyzing an attachment (PDF or Image) named '{file_name}' for the mission '{mission_name}'.
+    def _call_gemini():
+        prompt = f"""
+        You are a strategic NGO Mission Auditor for SevaSetu.
+        You are analyzing the TEXT EXTRACTED (via OCR) from an attachment: '{file_name}'.
+        The discussion context is the mission: '{mission_name}'.
 
-    YOUR TASK:
-    1. READ the entire document/image content (even tables, names, and dates).
-    2. Identify exactly what this is (e.g., 'Ground report', 'Participant list', 'Notice').
-    3. Summarize the key data in 2-3 specific sentences.
-    4. Evaluate its RELEVANCE specifically to the mission '{mission_name}'.
-    5. If relevant, explain the impact. If irrelevant, provide a professional explanation.
+        EXTRACTED TEXT:
+        \"\"\"
+        {ocr_text}
+        \"\"\"
 
-    Return ONLY valid JSON in this exact structure:
-    {{
-      "file_summary": "Deep summary of extracted content",
-      "relevance_score": 1-10,
-      "relevance_explanation": "Strategic connection to '{mission_name}'",
-      "action_recommended": "Specific recommendation for the supervisor"
-    }}
-    """
-    
-    file_part = {
-        "mime_type": mime_type,
-        "data": base64.b64encode(file_bytes).decode("utf-8")
-    }
+        YOUR TASK:
+        1. Identify the document type (e.g., 'Participant List', 'Legal Notice', 'Memo').
+        2. Summarize the key data (names, dates, core message) in 2-3 specific sentences.
+        3. Evaluate its RELEVANCE specifically to the mission '{mission_name}'.
+        4. If relevant, explain the impact on the mission.
+        5. If irrelevant, provide a professional explanation why.
+
+        Return ONLY valid JSON in this exact structure:
+        {{
+          "file_summary": "Deep summary of extracted content",
+          "relevance_score": 1-10,
+          "relevance_explanation": "Strategic connection to '{mission_name}'",
+          "action_recommended": "Specific recommendation for the supervisor"
+        }}
+        """
+
+        print(f"\n--- [Gemini Reasoning Engine] Processing OCR for '{file_name}' ---")
+        response = model.generate_content(prompt)
+        text_content = response.text.strip()
+        
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+
+        return json.loads(text_content.strip())
 
     try:
+        from app.services.chat_analysis_service import retry_with_backoff # type: ignore
+        return retry_with_backoff(_call_gemini)
+    except Exception as e:
+        print(f"!!! [Gemini Reasoning ERROR] {file_name}: {e}")
+        return {
+            "file_summary": "Extracted text was received but AI analysis failed.",
+            "relevance_score": 5,
+            "relevance_explanation": "AI could not determine relevance due to a processing error.",
+            "action_recommended": "Manual audit required."
+        }
+
+def analyze_multimodal_attachment(file_bytes: bytes, mime_type: str, mission_name: str, file_name: str) -> dict:
+    """
+    Direct multimodal analysis of PDFs and Images using Gemini 2.0 Flash with retry logic.
+    (Kept for fallback if needed, but primary is now OCR-based).
+    """
+    def _call_gemini():
+        prompt = f"""
+        You are a strategic NGO Mission Auditor for SevaSetu.
+        You are analyzing an attachment (PDF or Image) named '{file_name}' for the mission '{mission_name}'.
+
+        YOUR TASK:
+        1. READ the entire document/image content (even tables, names, and dates).
+        2. Identify exactly what this is (e.g., 'Ground report', 'Participant list', 'Notice').
+        3. Summarize the key data in 2-3 specific sentences.
+        4. Evaluate its RELEVANCE specifically to the mission '{mission_name}'.
+        5. If relevant, explain the impact. If irrelevant, provide a professional explanation.
+
+        Return ONLY valid JSON in this exact structure:
+        {{
+          "file_summary": "Deep summary of extracted content",
+          "relevance_score": 1-10,
+          "relevance_explanation": "Strategic connection to '{mission_name}'",
+          "action_recommended": "Specific recommendation for the supervisor"
+        }}
+        """
+        
+        file_part = {
+            "mime_type": mime_type,
+            "data": base64.b64encode(file_bytes).decode("utf-8")
+        }
+
         print(f"\n--- [Gemini Multimodal Engine] Directly analyzing '{file_name}' ---")
         response = model.generate_content([prompt, file_part])
         text_content = response.text.strip()
@@ -167,10 +225,15 @@ def analyze_multimodal_attachment(file_bytes: bytes, mime_type: str, mission_nam
             text_content = text_content.rsplit("```", 1)[0]
 
         return json.loads(text_content.strip())
+
+    try:
+        # Import retry locally if needed or use the one from chat_analysis_service
+        from app.services.chat_analysis_service import retry_with_backoff # type: ignore
+        return retry_with_backoff(_call_gemini)
     except Exception as e:
         print(f"!!! [Gemini Multimodal ERROR] {file_name}: {e}")
         return {
-            "file_summary": "Multimodal analysis failed.",
+            "file_summary": "Multimodal analysis failed or rate limited.",
             "relevance_score": 5,
             "relevance_explanation": "AI could not process this file due to an error.",
             "action_recommended": "Manual audit required."

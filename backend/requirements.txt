@@ -9,3 +9,4 @@ groq
 cloudinary
 reportlab
 numpy
+pymupdf
