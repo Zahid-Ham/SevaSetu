@@ -32,7 +32,7 @@ const ALL_SKILLS = [
 
 export const VolunteerProfileScreen = () => {
   const navigation = useNavigation<any>();
-  const logout = useAuthStore((state) => state.logout);
+  const { role, user, logout } = useAuthStore();
   const { 
     volunteerProfile, 
     loadVolunteerProfile, 
@@ -50,8 +50,15 @@ export const VolunteerProfileScreen = () => {
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
-    loadVolunteerProfile(volunteerId);
-  }, []);
+    // If we have a user from auth but no volunteerId set in event store yet, fix it
+    const targetId = volunteerId || user?.id || '';
+    if (targetId) {
+      loadVolunteerProfile(targetId);
+    }
+  }, [volunteerId, user?.id]);
+
+  const displayName = volunteerProfile?.name || user?.name || "Volunteer";
+  const displayNgo = user?.ngo_name || "Helping Hands Foundation";
 
   useEffect(() => {
     if (volunteerProfile) {
@@ -94,8 +101,8 @@ export const VolunteerProfileScreen = () => {
 
         {/* Header */}
         <View style={styles.headerArea}>
-          <UserAvatar name={volunteerProfile?.name || "Volunteer"} size={80} />
-          <Text style={[typography.headingMedium, styles.name]}>{volunteerProfile?.name || "Volunteer"}</Text>
+          <UserAvatar name={displayName} size={80} />
+          <Text style={[typography.headingMedium, styles.name]}>{displayName}</Text>
           <Text style={typography.captionText}>Volunteer • Tier 2 Badge</Text>
           {/* Availability toggle */}
           <TouchableOpacity
@@ -112,7 +119,7 @@ export const VolunteerProfileScreen = () => {
         {/* NGO Info */}
         <View style={[globalStyles.card, styles.card]}>
           <Text style={typography.headingSmall}>Assigned NGO</Text>
-          <Text style={[typography.bodyText, styles.detailItem]}>Helping Hands Foundation</Text>
+          <Text style={[typography.bodyText, styles.detailItem]}>{displayNgo}</Text>
           <Text style={[typography.bodyText, styles.detailItem]}>Supervisor: Mr. Gupta</Text>
         </View>
 

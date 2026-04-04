@@ -1,23 +1,33 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, Platform, StatusBar, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, Platform, StatusBar, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { PrimaryButton, MadeInIndiaBadge, GradientBackground } from '../../components';
+import { useAuthStore } from '../../services/store/useAuthStore';
 
 export const LoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => void }) => {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const login = useAuthStore(state => state.login);
   
   const role = route.params?.role || 'CITIZEN';
   const displayRole = role === 'SUPERVISOR' ? 'NGO Supervisor' : role.charAt(0) + role.slice(1).toLowerCase();
   
-  const handleLogin = () => {
-    // Standard mock login logic.
-    if (onSelectRole) {
-      onSelectRole(role);
+  const handleLogin = async () => {
+    setLoading(true);
+    try {
+      const result = await login(email, password);
+      if (!result.success) {
+        Alert.alert('Login Failed', result.message);
+      }
+    } catch (err) {
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -71,10 +81,10 @@ export const LoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => vo
           </TouchableOpacity>
 
           <PrimaryButton 
-            title="Login" 
+            title={loading ? "Verifying..." : "Login"} 
             onPress={handleLogin} 
             style={styles.loginBtn}
-            disabled={!email || !password}
+            disabled={!email || !password || loading}
           />
           
           {/* OTP Link Alternative */}

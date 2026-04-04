@@ -86,7 +86,7 @@ export const useEventStore = create<EventState>((set, get) => ({
   assignments: [],
   notifications: [],
   eventAssignments: [],
-  volunteerId: 'vol_logistics_1',
+   volunteerId: '',
   volunteerProfile: null,
   allVolunteerProfiles: [],
   liveMatches: [],
