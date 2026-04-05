@@ -32,15 +32,13 @@ const ALL_SKILLS = [
 
 export const VolunteerProfileScreen = () => {
   const navigation = useNavigation<any>();
-  const { role, user, logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const { 
     volunteerProfile, 
     loadVolunteerProfile, 
     saveVolunteerProfile, 
     loadingAction, 
     volunteerId,
-    setVolunteerId,
-    loadAssignments,
     loadLiveMatches,
   } = useEventStore();
 
@@ -57,7 +55,10 @@ export const VolunteerProfileScreen = () => {
     }
   }, [volunteerId, user?.id]);
 
-  const displayName = volunteerProfile?.name || user?.name || "Volunteer";
+  const displayName = (!volunteerProfile?.name || volunteerProfile?.name === 'Volunteer') 
+    ? (user?.name || "Volunteer") 
+    : volunteerProfile.name;
+
   const displayNgo = user?.ngo_name || "Helping Hands Foundation";
 
   useEffect(() => {
@@ -216,37 +217,6 @@ export const VolunteerProfileScreen = () => {
             <Feather name="chevron-right" size={20} color={colors.textSecondary} />
           </View>
         </TouchableOpacity>
-
-        {/* Debug Account Switcher (Only for Dev Testing) */}
-        <View style={[globalStyles.card, styles.debugCard]}>
-          <Text style={[typography.headingSmall, { color: colors.primarySaffron }]}>🛠️ Debug Account Switcher</Text>
-          <Text style={styles.fieldHint}>Instantly swap between test accounts to verify skills-based matching.</Text>
-          <View style={styles.debugGrid}>
-            {[
-              { id: 'vol_kavya_iyer',    label: 'Kavya Iyer',      icon: 'KI' },
-              { id: 'vol_mithali_raj',   label: 'Mithali Raj',     icon: 'MR' },
-              { id: 'vol_rohan_bopanna', label: 'Rohan Bopanna',   icon: 'RB' },
-              { id: 'vol_zara_sheikh',   label: 'Zara Sheikh',     icon: 'ZS' },
-            ].map((acc) => (
-              <TouchableOpacity
-                key={acc.id}
-                style={[styles.accBtn, volunteerId === acc.id && styles.accBtnActive]}
-                onPress={async () => {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  setVolunteerId(acc.id);
-                  await Promise.all([
-                    loadVolunteerProfile(acc.id),
-                    loadAssignments(acc.id),
-                    loadLiveMatches(acc.id),  // Refresh matching for new account
-                  ]);
-                }}
-              >
-                <Text style={styles.accIcon}>{acc.icon}</Text>
-                <Text style={[styles.accLabel, volunteerId === acc.id && styles.accLabelActive]}>{acc.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
 
         {/* Save button */}
         {isDirty && (

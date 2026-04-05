@@ -55,13 +55,20 @@ interface EventState {
   loadVolunteerProfile: (volunteerId: string) => Promise<void>;
   loadAllVolunteerProfiles: () => Promise<void>;
   loadLiveMatches: (volunteerId: string) => Promise<void>;
-  joinMatch: (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any) => Promise<void>; // Updated
+  joinMatch: (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any) => Promise<void>;
+  syncVolunteerProfile: (user: any) => Promise<void>; // New: Ensures profile exists
 
   // Actions — mutations
   confirmEvent: (eventId: string, options?: {
     predicted_date_start?: string;
     predicted_date_end?: string;
     estimated_headcount?: number;
+    latitude?: number;
+    longitude?: number;
+    geofence_radius?: number;
+    area?: string;
+    suggested_govt_scheme?: string;
+    required_skills?: string[];
   }) => Promise<void>;
   dismissEvent: (eventId: string) => Promise<void>;
   deleteEvent: (eventId: string) => Promise<void>;
@@ -332,7 +339,39 @@ export const useEventStore = create<EventState>((set, get) => ({
       eventAssignments: [],
       volunteerProfile: null,
       allVolunteerProfiles: [],
+      liveMatches: [],
     });
+  },
+
+  syncVolunteerProfile: async (user: any) => {
+    if (!user) return;
+    try {
+      // 1. Try to fetch existing
+      let profile = await api.fetchVolunteerProfile(user.id);
+      
+      // 2. Decide if we need to update/create
+      const isMissing = !profile;
+      const isGeneric = profile && (!profile.name || profile.name === 'Volunteer');
+      
+      if (isMissing || isGeneric) {
+        console.log(`[useEventStore] Syncing profile for ${user.name} (id: ${user.id})...`);
+        const updatedProfile = {
+          volunteer_id: user.id,
+          name: user.name || profile?.name || 'Volunteer',
+          skills: profile?.skills || [],
+          area: profile?.area || user.ngo_name || 'Maharashtra',
+          available_dates: profile?.available_dates || [],
+          is_available: profile?.is_available ?? true,
+          fatigue_score: profile?.fatigue_score ?? 0
+        };
+        await api.updateVolunteerProfile(updatedProfile);
+        set({ volunteerProfile: updatedProfile, volunteerId: user.id });
+      } else {
+        set({ volunteerProfile: profile, volunteerId: user.id });
+      }
+    } catch (e) {
+      console.error('[useEventStore] syncVolunteerProfile failed:', e);
+    }
   },
 
   seedInitialMissions: async () => {
@@ -351,21 +390,28 @@ export const useEventStore = create<EventState>((set, get) => ({
   
   pendingAssignments: () => {
     const { assignments, volunteerProfile } = get();
-    if (!volunteerProfile) return assignments.filter((a) => a.status === 'pending');
+    const pending = assignments.filter((a) => a.status === 'pending');
+    
+    // COLD START: If no profile loaded or no skills/dates set at all, show everything nearby
+    if (!volunteerProfile || (!volunteerProfile.skills?.length && !volunteerProfile.available_dates?.length)) {
+      return pending;
+    }
 
     const currentSkills = volunteerProfile.skills || [];
     const currentDates = volunteerProfile.available_dates || [];
 
-    return assignments.filter((a) => {
-      if (a.status !== 'pending') return false;
+    return pending.filter((a) => {
+      // Dynamic skill check - only filter if we actually have skills to match against
+      const hasSkill = currentSkills.length > 0 
+        ? (a.event_required_skills || []).some(s => currentSkills.includes(s))
+        : true;
+
+      // Dynamic date check - only filter if we actually have availability dates set
+      const hasDate = currentDates.length > 0
+        ? currentDates.some(d => d >= a.event_date_start && d <= a.event_date_end)
+        : true;
       
-      // Dynamic skill check
-      const hasSkill = (a.event_required_skills || []).some(s => currentSkills.includes(s));
-      // Dynamic date check
-      const hasDate = currentDates.some(d => d >= a.event_date_start && d <= a.event_date_end);
-      
-      // Allow if it matches skills OR if it is a fallback (where we might not have skills)
-      // but always respect the date availability
+      // Allow if it matches criteria OR if it is a fallback mission
       return (hasSkill || a.is_fallback) && hasDate;
     });
   },

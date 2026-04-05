@@ -8,6 +8,7 @@ import LottieView from 'lottie-react-native';
 import { AppHeader, PrimaryButton } from '../../components';
 import { colors, spacing, typography } from '../../theme';
 import { API_BASE_URL } from '../../config/apiConfig';
+import { uploadToCloudinary, uploadSurveyMediaViaBackend } from '../../services/api/uploadToCloudinary';
 
 export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -41,7 +42,34 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') return;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      
+      const mp3Options = {
+        isMeteringEnabled: true,
+        android: {
+          extension: '.mp3',
+          outputFormat: 2, // MPEG_4
+          audioEncoder: 3, // AAC
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.mp3',
+          audioQuality: 96, // HIGH
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/mpeg',
+          bitsPerSecond: 128000,
+        }
+      };
+
+      const { recording } = await Audio.Recording.createAsync(mp3Options as any);
       setRecording(recording);
       setIsRecording(true);
     } catch (err) {
@@ -65,12 +93,12 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
     }
     setLoading(true);
     try {
-      // 1. Synthesize Report
+      // 1. Synthesize Report via Gemini & Whisper
       const formData = new FormData();
       // @ts-ignore
       formData.append('photo', { uri: photoUri, name: 'photo.jpg', type: 'image/jpeg' });
       // @ts-ignore
-      formData.append('audio', { uri: audioUri, name: 'audio.m4a', type: 'audio/m4a' });
+      formData.append('audio', { uri: audioUri, name: 'audio.mp3', type: 'audio/mpeg' });
       if (location) formData.append('location', location);
 
       const res = await fetch(`${API_BASE_URL}/field-report`, {
@@ -79,32 +107,26 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       const data = await res.json();
-      
+
       if (data.success) {
-        // 2. Upload media
-        let photo_url, audio_url;
-        
+        // 2. Upload media to Cloudinary (Survey Folder)
+        let photo_url, audio_url, photo_public_id, audio_public_id;
+
         try {
-          const pForm = new FormData(); 
-          // @ts-ignore
-          pForm.append('file', {uri: photoUri, name: 'photo.jpg', type: 'image/jpeg'});
-          const pRes = await fetch(`${API_BASE_URL}/upload-media`, { method: 'POST', body: pForm });
-          const pData = await pRes.json();
-          if(pData.success) photo_url = pData.url;
+          console.log('[FieldReport] Uploading photo to Cloudinary...');
+          const pRes = await uploadToCloudinary(photoUri, 'image/jpeg', 'photo.jpg', 'sevasetu/survey');
+          photo_url = pRes.url;
+          photo_public_id = pRes.publicId;
 
-          const aForm = new FormData(); 
-          // @ts-ignore
-          aForm.append('file', {uri: audioUri, name: 'audio.m4a', type: 'audio/m4a'});
-          const aRes = await fetch(`${API_BASE_URL}/upload-media`, { method: 'POST', body: aForm });
-          const aData = await aRes.json();
-          if(aData.success) audio_url = aData.url;
+          console.log('[FieldReport] Uploading audio to Cloudinary...');
+          const aRes = await uploadSurveyMediaViaBackend(audioUri, 'audio.mp3', 'audio/mpeg', API_BASE_URL);
+          audio_url = aRes.url;
+          audio_public_id = aRes.publicId;
         } catch (e) {
-          console.warn('Media upload skipped, using local URIs as fallback', e);
+          console.warn('Media upload failed, using local URIs as risky fallback', e);
+          photo_url = photoUri;
+          audio_url = audioUri;
         }
-
-        // Fallback to local URIs
-        photo_url = photo_url || photoUri;
-        audio_url = audio_url || audioUri;
 
         // 3. Save to DB
         const payload = {
@@ -112,13 +134,15 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
           volunteer_id: 'vol_123',
           report_source: 'field_report',
           photo_url,
-          audio_url
+          photo_public_id,
+          audio_url,
+          audio_public_id
         };
         const submitRes = await fetch(`${API_BASE_URL}/submit-report`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
         });
         const submitData = await submitRes.json();
-        
+
         if (submitData.success) {
           setReportGenerated(true);
         } else {
@@ -152,7 +176,7 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
     <View style={styles.container}>
       <AppHeader title="New Field Report" showBack onBackPress={onBack} />
       <ScrollView contentContainerStyle={styles.scroll}>
-        
+
         <View style={styles.card}>
           <Text style={styles.cardTitle}>1. Capture Evidence</Text>
           {photoUri ? (
@@ -173,7 +197,7 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>2. Record Voice Note</Text>
           <Text style={styles.cardDesc}>Describe what you see, the community's response, and urgency.</Text>
-          
+
           <View style={styles.audioRow}>
             <TouchableOpacity
               style={[styles.recordBtn, isRecording && styles.recordingActive]}
@@ -181,7 +205,7 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
             >
               <Feather name={isRecording ? 'square' : 'mic'} size={28} color="#fff" />
             </TouchableOpacity>
-            
+
             <View style={styles.audioStatus}>
               {isRecording ? (
                 <Text style={styles.recordingText}>Recording...</Text>
@@ -211,7 +235,7 @@ export const FieldReportScreen = ({ onBack }: { onBack: () => void }) => {
           disabled={loading || !photoUri || !audioUri}
           style={styles.submitBtn}
         />
-        
+
       </ScrollView>
     </View>
   );
@@ -227,18 +251,18 @@ const styles = StyleSheet.create({
   },
   cardTitle: { ...typography.headingSmall, color: colors.textPrimary, marginBottom: spacing.xs },
   cardDesc: { ...typography.captionText, color: colors.textSecondary, marginBottom: spacing.md },
-  
+
   actionBtn: {
     height: 120, backgroundColor: colors.primaryGreen + '15', borderRadius: 16,
     borderWidth: 1, borderColor: colors.primaryGreen, borderStyle: 'dashed',
     justifyContent: 'center', alignItems: 'center',
   },
   actionText: { ...typography.bodyText, color: colors.primaryGreen, marginTop: spacing.xs, fontWeight: '600' },
-  
+
   imageWrap: { height: 200, borderRadius: 16, overflow: 'hidden' },
   image: { width: '100%', height: '100%', resizeMode: 'cover' },
   removeBtn: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 20 },
-  
+
   audioRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   recordBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primaryGreen, justifyContent: 'center', alignItems: 'center', elevation: 4 },
   recordingActive: { backgroundColor: colors.error },
@@ -247,12 +271,12 @@ const styles = StyleSheet.create({
   idleText: { ...typography.bodyText, color: colors.textSecondary },
   audioSuccess: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   recordedText: { ...typography.bodyText, color: colors.success, fontWeight: '600' },
-  
+
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.accentBlue + '10', padding: spacing.md, borderRadius: 12 },
   locationText: { ...typography.bodyText, color: colors.accentBlue, fontWeight: '600' },
-  
+
   submitBtn: { marginTop: spacing.md, marginBottom: spacing.xxl },
-  
+
   successContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
   successTitle: { ...typography.headingLarge, color: colors.textPrimary, marginTop: spacing.lg },
   successDesc: { ...typography.bodyText, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.md },

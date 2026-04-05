@@ -23,18 +23,18 @@ export const VolunteerHomeScreen = () => {
     liveMatches,
   } = useEventStore();
 
-  const { role } = useAuthStore();
+  const { role, user } = useAuthStore();
   const { rooms, loadRooms } = useChatStore();
 
-  const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : volunteerId;
+  const currentUserId = user?.id || volunteerId;
 
   useFocusEffect(
     React.useCallback(() => {
       if (currentUserId) {
-        loadAssignments(volunteerId);
-        loadVolunteerProfile(volunteerId);
+        loadAssignments(currentUserId);
+        loadVolunteerProfile(currentUserId);
         loadPredictions();
-        loadLiveMatches(volunteerId);
+        loadLiveMatches(currentUserId);
         loadRooms(currentUserId);
       }
     }, [currentUserId])
@@ -42,9 +42,14 @@ export const VolunteerHomeScreen = () => {
 
   const totalUnread = rooms.reduce((sum, r) => sum + (r.unread_count || 0), 0);
 
-  const urgentMissions = (Array.isArray(MOCK_MISSIONS) ? MOCK_MISSIONS : []).filter(m => m.urgency === 'High');
-  const pendingCount = (typeof pendingAssignments === 'function' ? pendingAssignments() : []).length;
-  const userName = volunteerProfile?.name || "Volunteer";
+  const pendingList = typeof pendingAssignments === 'function' ? pendingAssignments() : [];
+  const pendingCount = pendingList.length;
+  
+  // Use a strict identity priority: Authenticated User Name > Database Profile Name > Placeholder
+  const displayName = (!volunteerProfile?.name || volunteerProfile?.name === 'Volunteer') 
+    ? (user?.name || "Volunteer") 
+    : volunteerProfile.name;
+  const userName = displayName;
 
   return (
     <GradientBackground variant="dashboard" style={styles.container}>
@@ -108,16 +113,21 @@ export const VolunteerHomeScreen = () => {
 
           <SectionTitle title="Urgent Missions" />
           <View style={styles.listContainer}>
-            {urgentMissions.map(m => (
+            {pendingList.slice(0, 2).map((m: any) => (
               <MissionCard 
                 key={m.id}
-                title={m.title}
-                description={m.description}
-                location={m.location}
-                urgency={m.urgency}
-                onPress={() => {}}
+                title={m.event_type}
+                description={m.event_description || "Mission assignment ready for review."}
+                location={m.volunteer_area}
+                urgency="High"
+                onPress={() => navigation.navigate('Assignments')}
               />
             ))}
+            {pendingList.length === 0 && (
+              <Text style={[typography.captionText, { textAlign: 'center', marginVertical: 20 }]}>
+                No urgent missions at the moment.
+              </Text>
+            )}
           </View>
 
           <SectionTitle title="Upcoming Trainings" />

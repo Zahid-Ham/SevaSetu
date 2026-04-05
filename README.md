@@ -74,6 +74,13 @@ DOCUMENT_AI_LOCATION=us
 DOCUMENT_AI_PROCESSOR_ID=YOUR_PROCESSOR_ID
 ```
 
+### Frontend (.env)
+Place a `.env` file inside the `frontend/` folder with this key:
+
+```ini
+EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_KEY
+```
+
 ### Firebase Credentials
 1.  Go to [Firebase Console](https://console.firebase.google.com/).
 2.  Navigate to **Project Settings > Service Accounts**.

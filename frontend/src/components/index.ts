@@ -30,3 +30,4 @@ export * from './common/FullImageViewer';
 // Maps
 export * from './maps/MapMarker';
 export * from './maps/CrisisMap';
+export * from './LocationPickerModal';

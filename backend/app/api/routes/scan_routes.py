@@ -1,8 +1,24 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException # type: ignore
 from typing import List
 import asyncio
+import traceback
 from app.services.gemini_service import process_document_and_extract # type: ignore
 from app.services.analysis_service import get_previous_complaints_insights # type: ignore
+import cloudinary
+import cloudinary.uploader
+import os
+import uuid
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Cloudinary configuration
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True
+)
 
 router = APIRouter()
 
@@ -18,18 +34,6 @@ async def scan_form(file: UploadFile = File(...)):
         # Read file bytes
         image_bytes = await file.read()
         
-        # Save file to uploads for persistence
-        import uuid
-        import os
-        ext = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        filepath = os.path.join("uploads", filename)
-        
-        with open(filepath, "wb") as f:
-            f.write(image_bytes)
-            
-        print(f"[scan-form] Saved file: {filename}, size: {len(image_bytes)} bytes") # type: ignore
-
         # Use Gemini Vision natively on images or PDFs
         result = process_document_and_extract(image_bytes, mime_type=file.content_type)
         
@@ -41,11 +45,27 @@ async def scan_form(file: UploadFile = File(...)):
 
         raw_text = result.get("description", "No description available")
 
+        # Upload to Cloudinary
+        resource_type = "auto"
+        if file.content_type == "application/pdf":
+            resource_type = "raw"
+            
+        c_result = cloudinary.uploader.upload(
+            image_bytes,
+            resource_type=resource_type,
+            folder="sevasetu/survey",
+            use_filename=True,
+            unique_filename=True,
+            overwrite=False,
+            filename_override=file.filename,
+        )
+
         return {
             "success": True,
             "raw_text": raw_text,
             "parsed_data": result,
-            "url": f"/static/{filename}"
+            "url": c_result["secure_url"],
+            "public_id": c_result["public_id"]
         }
     except Exception as e:
         import traceback
@@ -56,7 +76,7 @@ async def scan_form(file: UploadFile = File(...)):
 @router.post("/batch-scan")
 async def batch_scan_forms(files: List[UploadFile] = File(...)):
     """
-    Endpoint to process multiple documents in parallel using Gemini.
+    Endpoint to process multiple documents in parallel using Gemini and upload to Cloudinary.
     """
     async def process_single_file(file: UploadFile):
         if not file.content_type or (not file.content_type.startswith("image/") and file.content_type != "application/pdf"):
@@ -64,13 +84,32 @@ async def batch_scan_forms(files: List[UploadFile] = File(...)):
         
         try:
             image_bytes = await file.read()
+            # Process with Gemini
             result = process_document_and_extract(image_bytes, mime_type=file.content_type)
             raw_text = result.pop("description", "No description available")
+            
+            # Use signed Cloudinary upload
+            resource_type = "auto"
+            if file.content_type == "application/pdf":
+                resource_type = "raw"
+                
+            c_result = cloudinary.uploader.upload(
+                image_bytes,
+                resource_type=resource_type,
+                folder="sevasetu/survey",
+                use_filename=True,
+                unique_filename=True,
+                overwrite=False,
+                filename_override=file.filename,
+            )
+
             return {
                 "filename": file.filename,
                 "success": True,
                 "raw_text": raw_text,
-                "parsed_data": result
+                "parsed_data": result,
+                "url": c_result["secure_url"],
+                "public_id": c_result["public_id"]
             }
         except Exception as e:
             return {"filename": file.filename, "error": str(e)}

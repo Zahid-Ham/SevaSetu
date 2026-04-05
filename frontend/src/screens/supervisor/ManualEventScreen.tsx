@@ -14,7 +14,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { AppHeader } from '../../components';
+import { AppHeader, LocationPickerModal } from '../../components';
 
 const CATEGORIES = ['Water', 'Health', 'Sanitation', 'Education', 'Infrastructure', 'Safety', 'Environment'];
 const SKILLS = [
@@ -35,6 +35,10 @@ export const ManualEventScreen = ({ navigation }: any) => {
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [description, setDescription] = useState('');
   const [area, setArea] = useState('Maharashtra');
+  const [latitude, setLatitude] = useState<number | undefined>();
+  const [longitude, setLongitude] = useState<number | undefined>();
+  const [geofenceRadius, setGeofenceRadius] = useState(150);
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [headcount, setHeadcount] = useState('10');
@@ -63,6 +67,9 @@ export const ManualEventScreen = ({ navigation }: any) => {
       category,
       description,
       area,
+      latitude,
+      longitude,
+      geofence_radius: geofenceRadius,
       predicted_date_start: startDate,
       predicted_date_end: endDate,
       estimated_headcount: parseInt(headcount, 10) || 10,
@@ -114,6 +121,24 @@ export const ManualEventScreen = ({ navigation }: any) => {
             </View>
 
             <View style={styles.inputGroup}>
+              <Text style={styles.label}>Location</Text>
+              <TouchableOpacity 
+                style={[styles.input, styles.locationBtn]} 
+                onPress={() => setLocationPickerVisible(true)}
+              >
+                <Feather name="map-pin" size={16} color={colors.primaryGreen} />
+                <Text style={styles.locationBtnTxt} numberOfLines={1}>
+                  {latitude ? area : "📍 Set Mission Location on Map"}
+                </Text>
+              </TouchableOpacity>
+              {latitude && (
+                <Text style={styles.coordinatesHint}>
+                  Coordinates: {latitude.toFixed(4)}, {longitude?.toFixed(4)} • Radius: {geofenceRadius}m
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Description</Text>
               <TextInput 
                 style={[styles.input, styles.textArea]} 
@@ -125,6 +150,18 @@ export const ManualEventScreen = ({ navigation }: any) => {
               />
             </View>
           </View>
+
+          <LocationPickerModal
+            visible={locationPickerVisible}
+            onClose={() => setLocationPickerVisible(false)}
+            onConfirm={(loc) => {
+              setArea(loc.address);
+              setLatitude(loc.latitude);
+              setLongitude(loc.longitude);
+              setGeofenceRadius(loc.geofence_radius);
+            }}
+            initialLocation={latitude && longitude ? { latitude, longitude, address: area } : undefined}
+          />
 
           <View style={[globalStyles.card, styles.formCard]}>
             <Text style={styles.sectionTitle}>Logistics & Skills</Text>
@@ -208,6 +245,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '600' as const, color: colors.textPrimary, marginBottom: 8 },
   input: { backgroundColor: colors.cardBackground, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, paddingHorizontal: spacing.md, height: 48, fontSize: 15 },
   textArea: { height: 100, textAlignVertical: 'top', paddingTop: spacing.sm },
+  locationBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'flex-start' },
+  locationBtnTxt: { fontSize: 14, color: colors.textPrimary, flex: 1 },
+  coordinatesHint: { fontSize: 11, color: colors.textSecondary, marginTop: 6, fontStyle: 'italic' },
   row: { flexDirection: 'row' },
   categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   catBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: '#E0E0E0' },

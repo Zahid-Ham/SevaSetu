@@ -230,6 +230,9 @@ def bulk_dispatch_assignments(event_id: str, ranked_volunteers: list[dict], even
     event_area = event_ref.get('area', 'TBD')
     event_start = event_ref.get('predicted_date_start', 'TBD')
     required_skills = event_ref.get('required_skills', [])
+    event_lat = event_ref.get('latitude')
+    event_lon = event_ref.get('longitude')
+    event_rad = event_ref.get('geofence_radius')
 
     for volunteer in ranked_volunteers:
         volunteer_id = volunteer.get("volunteer_id")
@@ -242,6 +245,9 @@ def bulk_dispatch_assignments(event_id: str, ranked_volunteers: list[dict], even
         assignment_data["id"] = assign_ref.id
         assignment_data["created_at"] = firestore.SERVER_TIMESTAMP
         assignment_data["status"] = "pending"
+        assignment_data["event_latitude"] = event_lat
+        assignment_data["event_longitude"] = event_lon
+        assignment_data["event_geofence_radius"] = event_rad
         batch.set(assign_ref, assignment_data)
         created_assignments.append(assignment_data)
 

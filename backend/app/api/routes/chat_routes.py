@@ -50,7 +50,8 @@ router = APIRouter()
 async def serve_file(
     public_id: str, 
     transformation: str = None, 
-    extension: str = None
+    extension: str = None,
+    r_type: Optional[str] = None
 ):
     """
     SERVER-SIDE PROXY: Downloads a file stored in Cloudinary and streams it to the client.
@@ -58,6 +59,14 @@ async def serve_file(
     """
     if not CLOUDINARY_AVAILABLE:
         raise HTTPException(status_code=503, detail="Cloudinary SDK not available")
+
+    # CLEANUP: Remove version prefix if passed (e.g. v1782374/path/to/file -> path/to/file)
+    # Cloudinary URLs include a 'v' followed by numbers as a cache-buster/version.
+    import re
+    if re.match(r"^v[0-9]+/", public_id):
+        new_public_id = re.sub(r"^v[0-9]+/", "", public_id)
+        print(f"[Serve File] Stripped version prefix: {public_id} -> {new_public_id}")
+        public_id = new_public_id
 
     print(f"[Serve File] Request for public_id={public_id}, t={transformation}, ext={extension}")
     
@@ -76,31 +85,35 @@ async def serve_file(
         elif target_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
             media_type = "image/jpeg"
         else:
-            media_type = "application/octet-stream"
+            # Fallback for m4a which mimetypes often misses
+            if extension and extension.lower() == 'm4a':
+                media_type = "audio/mp4"
+            else:
+                media_type = "application/octet-stream"
 
-    # Try raw, image, then video (Resource types in Cloudinary)
+    # Try provided r_type hint first, then fallback to loop
     last_error = None
-    for r_type in ["raw", "image", "video"]:
+    resource_types = [r_type] if r_type else (["video", "raw", "image"] if extension in ['m4a', 'mp3', 'wav', 'mp4', 'mov'] else ["image", "raw", "video"])
+    
+    for current_rtype in resource_types:
         try:
             # private_download_url hits api.cloudinary.com (not the blocked CDN res.cloudinary.com)
             download_url = cloudinary.utils.private_download_url(
                 public_id,
                 extension,              # Extension override (convert video to jpg)
-                resource_type=r_type,
+                resource_type=current_rtype,
                 type="upload",
                 expires_at=int(time.time()) + 3600, # 1 hour expiry
                 attachment=False,
                 transformation=transformation,      # Apply transformation (e.g. so_0)
             )
 
-            print(f"[Serve File] Trying r_type={r_type} → {download_url[:100]}...")
+            print(f"[Serve File] Trying r_type={current_rtype} → {download_url[:100]}...")
             resp = http_requests.get(download_url, stream=True, timeout=60)
             
             if resp.status_code == 200:
-                print(f"[Serve File] SUCCESS with r_type={r_type}")
-                filename = public_id.split("/")[-1]
-                if extension:
-                    filename = f"{filename}.{extension}"
+                file_ext = extension or public_id.split(".")[-1]
+                filename = f"{public_id.split('/')[-1]}.{file_ext}"
 
                 def make_streamer(response):
                     def _stream():
@@ -390,26 +403,30 @@ async def send_message(req: SendMessageRequest):
     await ws_manager.notify_receiver(receiver_id, notification_data)
 
     # 2. Add Message to subcollection (PERMANENT STORAGE)
-    room_ref.collection("messages").add(msg_data)
-
-    return {"success": True, "room_id": room_id}
+    doc_ref = room_ref.collection("messages").add(msg_data)
+    message_id = doc_ref[1].id # doc_ref is tuple: (Timestamp, DocumentReference)
+    
+    return {"success": True, "room_id": room_id, "message_id": message_id}
 
 @router.post("/chat/read/{room_id}")
 async def mark_room_read(room_id: str, user_id: str):
     """
     Marks all messages in a room as read for the given user.
-    Updates last_read_by[user_id] to now.
+    Uses firestore.SERVER_TIMESTAMP to ensure native type consistency.
     """
     try:
         room_ref = db.collection("chats").document(room_id)
-        # Using .update() with a dot-notated key correctly updates 
-        # a nested field without overwriting the entire map.
-        room_ref.update({
-            f"last_read_by.{user_id}": firestore.SERVER_TIMESTAMP,
-            f"unread_counts.{user_id}": 0
-        })
+        room_ref.set({
+            "last_read_by": {
+                user_id: firestore.SERVER_TIMESTAMP
+            },
+            "unread_counts": {
+                user_id: 0
+            }
+        }, merge=True)
         return {"success": True}
     except Exception as e:
+        print(f"[Chat Read Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/chat/messages/{room_id}/{message_id}")
@@ -418,31 +435,91 @@ async def delete_message(room_id: str, message_id: str, mode: str = "for_me", us
     Deletes a message.
     mode=for_everyone: Sets deleted=True, clears text (replaces with placeholder). Visible to all.
     mode=for_me: Adds user_id to deleted_by list. Message hidden only for that user.
+    🎯 NEW: Automatically wipes associated Cloudinary media if no longer accessible by ANY participant.
     """
     try:
-        msg_ref = db.collection("chats").document(room_id).collection("messages").document(message_id)
-        msg_snap = msg_ref.get()
+        room_ref = db.collection("chats").document(room_id)
+        msg_ref = room_ref.collection("messages").document(message_id)
         
+        msg_snap = msg_ref.get()
         if not msg_snap.exists:
             raise HTTPException(status_code=404, detail="Message not found.")
+        
+        msg_data = msg_snap.to_dict()
+        file_pid = msg_data.get("file_public_id")
+        file_type = msg_data.get("file_type", "") # e.g. 'image/jpeg'
+        msg_type = msg_data.get("type", "text")    # e.g. 'image', 'pdf', 'video'
+        
+        should_purge_cloudinary = False
+        updated_deleted_by = msg_data.get("deleted_by", [])
 
         if mode == "for_everyone":
             msg_ref.update({
                 "deleted": True,
                 "text": "This message was deleted",
                 "deleted_by": [],  # Clear individual deletions since it's now gone for all
+                # Optionally clear media fields in Firestore to "forget" the asset
+                "file_url": firestore.DELETE_FIELD,
+                "file_public_id": firestore.DELETE_FIELD,
             })
+            should_purge_cloudinary = True if file_pid else False
+            print(f"[Chat Delete] Mode: for_everyone. Flagging Cloudinary purge for {file_pid}")
+
         elif mode == "for_me" and user_id:
-            msg_ref.update({
-                "deleted_by": firestore.ArrayUnion([user_id])
-            })
+            if user_id not in updated_deleted_by:
+                updated_deleted_by.append(user_id)
+                msg_ref.update({
+                    "deleted_by": firestore.ArrayUnion([user_id])
+                })
+            
+            # Check if purge is needed (everyone has deleted)
+            room_snap = room_ref.get()
+            if room_snap.exists:
+                participants = room_snap.to_dict().get("participants", [])
+                # If all current participants have deleted the message
+                if participants and all(p in updated_deleted_by for p in participants):
+                    should_purge_cloudinary = True if file_pid else False
+                    print(f"[Chat Delete] All participants ({participants}) deleted. Flagging Cloudinary purge.")
         else:
             raise HTTPException(status_code=400, detail="Invalid delete mode or missing user_id.")
-        
+
+        # ── PERFORM CLOUDINARY PURGE ──
+        if should_purge_cloudinary and file_pid and CLOUDINARY_AVAILABLE:
+            try:
+                # 1. Determine most likely resource_type
+                rtype = "raw"
+                if "image" in file_type or msg_type == "image":
+                    rtype = "image"
+                elif "video" in file_type or msg_type == "video":
+                    rtype = "video"
+                
+                print(f"[Chat Cleanup] Destroying: {file_pid} (Type: {rtype})")
+                cloudinary.uploader.destroy(file_pid, resource_type=rtype)
+            except Exception as ce:
+                print(f"[Chat Cleanup] Error purging {file_pid}: {ce}")
+
+        # ── BROADCAST DELETION ──
+        # Notify all participants that this message is now deleted
+        if mode == "for_everyone" or should_purge_cloudinary:
+            room_snap = room_ref.get()
+            if room_snap.exists:
+                participants = room_snap.to_dict().get("participants", [])
+                deletion_notice = {
+                    "type": "message_deleted",
+                    "room_id": room_id,
+                    "message_id": message_id,
+                    "mode": mode,
+                    "deleted_by": updated_deleted_by,
+                    "timestamp": datetime.now().isoformat()
+                }
+                for p_id in participants:
+                    await ws_manager.notify_receiver(p_id, deletion_notice)
+
         return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[Chat Delete Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/chat/messages/{room_id}")
@@ -504,32 +581,45 @@ async def get_user_rooms(user_id: str):
         for r in rooms_query:
             d = r.to_dict()
             d["id"] = r.id
+            
             # ── Optimized Unread Check ──
-            # Use the pre-computed persistent unread count for this user
             unread_counts = d.get("unread_counts", {})
             unread_count = unread_counts.get(user_id, 0)
             
-            # Fallback for binary status (backward compatibility)
+            # Fallback for binary status
             if unread_count == 0:
                 last_read_by = d.get("last_read_by", {})
                 last_read_ts = last_read_by.get(user_id)
                 updated_at_ts = d.get("updated_at")
                 last_sender_id = d.get("last_sender_id")
+                
                 if last_sender_id != user_id and updated_at_ts:
-                    if not last_read_ts or updated_at_ts > last_read_ts:
+                    # 🛡️ NORMALIZED COMPARISON: 
+                    # Convert both to ISO strings for safe comparison (handles Datetime vs Str mismatch)
+                    norm_updated = updated_at_ts.isoformat() if hasattr(updated_at_ts, 'isoformat') else str(updated_at_ts)
+                    norm_last_read = last_read_ts.isoformat() if hasattr(last_read_ts, 'isoformat') else str(last_read_ts)
+                    
+                    if not last_read_ts or norm_updated > norm_last_read:
                         unread_count = 1
             
-            # Now safe to convert to string for JSON serialization
-            if d.get("updated_at"):
-                d["updated_at"] = d["updated_at"].isoformat()
+            # ── Safety for Serialization ──
+            raw_updated = d.get("updated_at")
+            if raw_updated:
+                if hasattr(raw_updated, "isoformat"):
+                    d["updated_at"] = raw_updated.isoformat()
+                else:
+                    d["updated_at"] = str(raw_updated)
+            else:
+                d["updated_at"] = ""
 
             d["unread_count"] = unread_count
             result.append(d)
         
-        # Sort by updated_at descending (newest first)
+        # Sort by updated_at descending
         result.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return {"success": True, "rooms": result}
     except Exception as e:
+        print(f"[Rooms Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ── Chat Intelligence Endpoints ──────────────────────────────────────────

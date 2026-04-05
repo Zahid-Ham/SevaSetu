@@ -45,6 +45,9 @@ export interface PredictedEvent {
   confidence_score: number;
   confidence_reason: string;
   area: string;
+  latitude?: number;    // Added
+  longitude?: number;   // Added
+  geofence_radius?: number; // Added (meters)
   suggested_govt_scheme: string;
   tier: 'high' | 'medium' | 'low';
   status: 'predicted' | 'confirmed' | 'dismissed' | 'stopped';
@@ -70,7 +73,10 @@ export interface VolunteerAssignment {
   event_description?: string;
   event_date_start: string;
   event_date_end: string;
-  event_required_skills?: string[];  // Added
+  event_required_skills?: string[];
+  event_latitude?: number;  // Added
+  event_longitude?: number; // Added
+  event_geofence_radius?: number; // Added
   status: 'pending' | 'accepted' | 'declined';
   is_fallback: boolean;
   created_at?: string;
@@ -119,6 +125,9 @@ export interface LiveMatch {
     area_match_pct: number;
     fatigue_buffer_pct: number;
   };
+  latitude?: number;  // Added
+  longitude?: number; // Added
+  geofence_radius?: number; // Added
   ai_reasoning: string;
   is_live_match: true;
 }
@@ -237,6 +246,11 @@ export async function confirmPrediction(eventId: string, options?: {
   predicted_date_start?: string;
   predicted_date_end?: string;
   estimated_headcount?: number;
+  latitude?: number;
+  longitude?: number;
+  geofence_radius?: number;
+  required_skills?: string[];
+  suggested_govt_scheme?: string;
 }): Promise<{ assignments: VolunteerAssignment[] }> {
   const data = await apiFetch<any>(`/predictions/${eventId}/confirm`, { 
     method: 'POST',
@@ -262,10 +276,14 @@ export async function createManualEvent(payload: {
   category: string;
   description: string;
   area: string;
+  latitude?: number;
+  longitude?: number;
+  geofence_radius?: number;
   predicted_date_start: string;
   predicted_date_end: string;
   estimated_headcount: number;
   required_skills: string[];
+  suggested_govt_scheme?: string;
 }): Promise<void> {
   await apiFetch('/events/manual', {
     method: 'POST',
@@ -390,7 +408,7 @@ export async function sendMessage(payload: {
   file_public_id?: string;
   file_version?: string;
   file_extension?: string;
-}): Promise<{ room_id: string }> {
+}): Promise<{ room_id: string; message_id: string }> {
   return await apiFetch('/chat/send', {
     method: 'POST',
     body: JSON.stringify(payload),

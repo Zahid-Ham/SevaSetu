@@ -115,25 +115,29 @@ const ImageBubble = ({
   isSelf: boolean; 
   onLongPress?: (m: any) => void;
   onPress?: (url: string) => void;
-}) => (
-  <TouchableOpacity
-    activeOpacity={0.9}
-    onLongPress={() => onLongPress?.(message)}
-    onPress={() => onPress?.(message.file_url)}
-    style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
-  >
-    <Image
-      source={{ uri: message.file_url }}
-      style={styles.imageBubble}
-      resizeMode="cover"
-    />
-    <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
-      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-    </Text>
-  </TouchableOpacity>
-);
+}) => {
+  const imageUrl = message.file_public_id 
+    ? `${API_BASE_URL}/chat/serve-file?public_id=${message.file_public_id}&r_type=image`
+    : message.file_url;
 
-// ── PDF/Document Bubble ───────────────────────────────────────────────────────
+  return (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onLongPress={() => onLongPress?.(message)}
+      onPress={() => onPress?.(imageUrl)}
+      style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
+    >
+      <Image
+        source={{ uri: imageUrl }}
+        style={styles.imageBubble}
+        resizeMode="cover"
+      />
+      <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
+        {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 const PdfBubble = ({ 
   message, 
@@ -145,33 +149,35 @@ const PdfBubble = ({
   isSelf: boolean; 
   onLongPress?: (m: any) => void;
   onOpenPdf?: (m: any) => void;
-}) => (
-  <TouchableOpacity
-    activeOpacity={0.8}
-    onLongPress={() => onLongPress?.(message)}
-    onPress={() => onOpenPdf ? onOpenPdf(message) : (message.file_url && Linking.openURL(message.file_url))}
-    style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
-  >
-    <View style={[styles.pdfBubble, isSelf ? styles.pdfBubbleSelf : styles.pdfBubbleOther]}>
-      {isSelf && <LinearGradient colors={['#1B5E20', '#2E7D32']} style={StyleSheet.absoluteFill} />}
-      <View style={styles.pdfIcon}>
-        <Feather name="file-text" size={24} color={isSelf ? '#fff' : colors.primaryGreen} />
+}) => {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onLongPress={() => onLongPress?.(message)}
+      onPress={() => onOpenPdf ? onOpenPdf(message) : (message.file_url && Linking.openURL(message.file_url))}
+      style={[styles.bubbleWrapper, isSelf ? styles.selfWrapper : styles.otherWrapper]}
+    >
+      <View style={[styles.pdfBubble, isSelf ? styles.pdfBubbleSelf : styles.pdfBubbleOther]}>
+        {isSelf && <LinearGradient colors={['#1B5E20', '#2E7D32']} style={StyleSheet.absoluteFill} />}
+        <View style={styles.pdfIcon}>
+          <Feather name="file-text" size={24} color={isSelf ? '#fff' : colors.primaryGreen} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.pdfName, { color: isSelf ? '#fff' : colors.textPrimary }]} numberOfLines={1}>
+            {message.file_name || 'Document'}
+          </Text>
+          <Text style={[styles.pdfSize, { color: isSelf ? '#A5D6A7' : colors.textSecondary }]}>
+            {message.file_size ? formatFileSize(message.file_size) : 'PDF'} • Tap to open
+          </Text>
+        </View>
+        <Feather name="external-link" size={16} color={isSelf ? '#A5D6A7' : colors.primaryGreen} />
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.pdfName, { color: isSelf ? '#fff' : colors.textPrimary }]} numberOfLines={1}>
-          {message.file_name || 'Document'}
-        </Text>
-        <Text style={[styles.pdfSize, { color: isSelf ? '#A5D6A7' : colors.textSecondary }]}>
-          {message.file_size ? formatFileSize(message.file_size) : 'PDF'} • Tap to open
-        </Text>
-      </View>
-      <Feather name="external-link" size={16} color={isSelf ? '#A5D6A7' : colors.primaryGreen} />
-    </View>
-    <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
-      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-    </Text>
-  </TouchableOpacity>
-);
+      <Text style={[styles.timestamp, { color: colors.textSecondary, alignSelf: isSelf ? 'flex-end' : 'flex-start', marginTop: 2 }]}>
+        {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 // ── Audio Bubble ─────────────────────────────────────────────────────────────
 
@@ -205,13 +211,16 @@ const AudioBubble = ({
         await soundRef.current.playAsync();
         setIsPlaying(true);
       } else {
-        // Use proxy URL to bypass 401
-        const params = new URLSearchParams({ public_id: message.file_public_id || '' });
+        // Use proxy URL with 'video' hint for audio
+        const params = new URLSearchParams({ 
+          public_id: message.file_public_id || '',
+          r_type: 'video' 
+        });
         const proxyUrl = `${API_BASE_URL}/chat/serve-file?${params.toString()}`;
         
         const { sound } = await Audio.Sound.createAsync(
           { uri: proxyUrl },
-          { shouldPlay: true, isLooping: false }, // Explicitly disable looping
+          { shouldPlay: true, isLooping: false },
           (status) => setPlaybackStatus(status)
         );
         soundRef.current = sound;
@@ -298,16 +307,20 @@ const VideoBubble = ({
   const [showPlayer, setShowPlayer] = useState(false);
   const videoRef = useRef<any>(null);
   
-  // Fetch thumbnail (first frame) via proxy with transformation
+  // Fetch thumbnail via proxy with transformation and 'video' hint
   const thumbParams = new URLSearchParams({ 
     public_id: message.file_public_id || '',
-    transformation: 'so_0', // First frame
-    extension: 'jpg'        // Convert video to image
+    transformation: 'so_0',
+    extension: 'jpg',
+    r_type: 'video'
   });
   const thumbUrl = `${API_BASE_URL}/chat/serve-file?${thumbParams.toString()}`;
 
-  // Video URL via proxy for streaming
-  const videoParams = new URLSearchParams({ public_id: message.file_public_id || '' });
+  // Video URL via proxy with 'video' hint
+  const videoParams = new URLSearchParams({ 
+    public_id: message.file_public_id || '',
+    r_type: 'video'
+  });
   const videoUrl = `${API_BASE_URL}/chat/serve-file?${videoParams.toString()}`;
   
   return (
@@ -630,6 +643,8 @@ export const ChatScreen = () => {
         file_name: fileName,
         file_size: uploaded.bytes,
         file_public_id: uploaded.publicId,
+        file_version: uploaded.version,
+        file_extension: uploaded.format,
         metadata
       });
     } catch (e: any) {

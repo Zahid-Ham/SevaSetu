@@ -16,7 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
 import { PredictedEvent } from '../../services/api/eventPredictionService';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { AppHeader } from '../../components';
+import { AppHeader, LocationPickerModal } from '../../components';
 
 const CATEGORY_ICONS: Record<string, string> = {
   Water: '💧', Health: '🏥', Sanitation: '🧹', Education: '📚',
@@ -44,6 +44,12 @@ export const EventForecastScreen = ({ navigation }: any) => {
   const [editStart, setEditStart] = useState('');
   const [editEnd, setEditEnd] = useState('');
   const [editHeadcount, setEditHeadcount] = useState('');
+  const [editLatitude, setEditLatitude] = useState<number | undefined>();
+  const [editLongitude, setEditLongitude] = useState<number | undefined>();
+  const [editGeofenceRadius, setEditGeofenceRadius] = useState(150);
+  const [editArea, setEditArea] = useState('');
+  const [editScheme, setEditScheme] = useState('');
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
 
   const { 
     predictions, 
@@ -78,6 +84,11 @@ export const EventForecastScreen = ({ navigation }: any) => {
     setEditStart(event.predicted_date_start || '');
     setEditEnd(event.predicted_date_end || '');
     setEditHeadcount(event.estimated_headcount?.toString() || '');
+    setEditLatitude(event.latitude);
+    setEditLongitude(event.longitude);
+    setEditGeofenceRadius(event.geofence_radius || 150);
+    setEditArea(event.area || '');
+    setEditScheme(event.suggested_govt_scheme || '');
   };
 
   const handleApplyConfirm = async () => {
@@ -87,6 +98,11 @@ export const EventForecastScreen = ({ navigation }: any) => {
       predicted_date_start: editStart,
       predicted_date_end: editEnd,
       estimated_headcount: parseInt(editHeadcount, 10) || editingEvent.estimated_headcount,
+      latitude: editLatitude,
+      longitude: editLongitude,
+      geofence_radius: editGeofenceRadius,
+      area: editArea,
+      suggested_govt_scheme: editScheme,
     });
     setEditingEvent(null);
   };
@@ -313,11 +329,46 @@ export const EventForecastScreen = ({ navigation }: any) => {
               <TextInput style={styles.input} value={editHeadcount} onChangeText={setEditHeadcount} keyboardType="numeric" />
             </View>
 
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Govt Scheme</Text>
+              <TextInput style={styles.input} value={editScheme} onChangeText={setEditScheme} placeholder="e.g. Jal Jeevan Mission" />
+            </View>
+
+            <View style={styles.inputGroup}>
+               <Text style={styles.label}>Location</Text>
+               <TouchableOpacity 
+                 style={[styles.input, styles.locationBtn]} 
+                 onPress={() => setLocationPickerVisible(true)}
+               >
+                 <Feather name="map-pin" size={16} color={colors.primaryGreen} />
+                 <Text style={styles.locationBtnTxt} numberOfLines={1}>
+                   {editLatitude ? editArea : "📍 Set Mission Location on Map"}
+                 </Text>
+               </TouchableOpacity>
+               {editLatitude && (
+                 <Text style={styles.coordinatesHint}>
+                   {editLatitude.toFixed(4)}, {editLongitude?.toFixed(4)} • Radius: {editGeofenceRadius}m
+                 </Text>
+               )}
+            </View>
+
             <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleApplyConfirm} disabled={loadingAction}>
                {loadingAction ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitTxt}>Confirm & Dispatch</Text>}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        <LocationPickerModal
+          visible={locationPickerVisible}
+          onClose={() => setLocationPickerVisible(false)}
+          onConfirm={(loc) => {
+            setEditArea(loc.address);
+            setEditLatitude(loc.latitude);
+            setEditLongitude(loc.longitude);
+            setEditGeofenceRadius(loc.geofence_radius);
+          }}
+          initialLocation={editLatitude && editLongitude ? { latitude: editLatitude, longitude: editLongitude, address: editArea } : undefined}
+        />
       </Modal>
 
     </View>
@@ -568,4 +619,7 @@ const styles = StyleSheet.create({
   input: { backgroundColor: colors.cardBackground, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, paddingHorizontal: spacing.md, height: 48, fontSize: 16 },
   modalSubmitBtn: { backgroundColor: colors.primaryGreen, borderRadius: 12, height: 50, alignItems: 'center', justifyContent: 'center', marginTop: spacing.md },
   modalSubmitTxt: { color: '#fff', fontSize: 16, fontWeight: '700' as const },
+  locationBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'flex-start' },
+  locationBtnTxt: { fontSize: 14, color: colors.textPrimary, flex: 1 },
+  coordinatesHint: { fontSize: 11, color: colors.textSecondary, marginTop: 4, fontStyle: 'italic' },
 });

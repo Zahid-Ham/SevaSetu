@@ -48,7 +48,9 @@ class ReportCreate(BaseModel):
     volunteer_id: Optional[str] = None
     report_source: Optional[str] = None
     photo_url: Optional[str] = None
+    photo_public_id: Optional[str] = None
     audio_url: Optional[str] = None
+    audio_public_id: Optional[str] = None
     
     # Legacy fields (for backward compatibility)
     location: Optional[str] = None

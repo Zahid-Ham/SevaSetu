@@ -89,7 +89,9 @@ type Report = {
   location?: string;
   issue_type?: string;
   photo_url?: string;
+  photo_public_id?: string;
   audio_url?: string;
+  audio_public_id?: string;
 };
 
 type ScreenMode = 'idle' | 'processing' | 'preview' | 'success';
@@ -296,7 +298,17 @@ const AudioPlayer = ({ url }: { url: string }) => {
           setIsPlaying(true);
         }
       } else {
-        const fullUrl = url.startsWith('file://') ? url : API_BASE_URL + url;
+        // Fix: Use /chat/serve-file proxy for Cloudinary URLs to bypass CDN blocks
+        let fullUrl = url;
+        if (url.startsWith('https://res.cloudinary.com')) {
+          const publicId = url.split('/upload/')[1].split('.').slice(0, -1).join('.');
+          const extension = url.split('.').pop();
+          fullUrl = `${API_BASE_URL}/chat/serve-file?public_id=${publicId}&extension=${extension}`;
+          console.log('[AudioPlayer] Proxying Cloudinary URL:', fullUrl);
+        } else if (!url.startsWith('file://')) {
+          fullUrl = API_BASE_URL + url;
+        }
+
         const { sound: newSound } = await Audio.Sound.createAsync(
           { uri: fullUrl },
           { shouldPlay: true }
@@ -389,7 +401,7 @@ export const ScanSurveyScreen = () => {
 
   // Data State
   const [scannedFiles, setScannedFiles] = useState<{ uri: string, type: string, name: string }[]>([]);
-  const [batchResults, setBatchResults] = useState<{ parsed: ParsedData, file: any, url?: string }[]>([]);
+  const [batchResults, setBatchResults] = useState<{ parsed: ParsedData, file: any, url?: string, publicId?: string }[]>([]);
   const [currentEditIndex, setCurrentEditIndex] = useState(0);
   const [lastReportId, setLastReportId] = useState<string | null>(null);
 
@@ -500,7 +512,7 @@ export const ScanSurveyScreen = () => {
         });
         const result = await response.json();
         if (result.success) {
-          results.push({ parsed: result.parsed_data, file, url: result.url });
+          results.push({ parsed: result.parsed_data, file, url: result.url, publicId: result.public_id });
         }
       }
       setBatchResults(results);
@@ -523,7 +535,8 @@ export const ScanSurveyScreen = () => {
         ...currentData,
         volunteer_id: 'vol_123',
         report_source: 'scan',
-        photo_url: currentFileNode.url
+        photo_url: currentFileNode.url,
+        photo_public_id: currentFileNode.publicId
       };
 
       const response = await fetch(`${API_BASE_URL}/submit-report`, {
@@ -1146,7 +1159,10 @@ Higher scores = urgent intervention needed.`
                         activeOpacity={0.7}
                         style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: spacing.md, borderRadius: 12, borderWidth: 1, borderColor: colors.primaryGreen + '40', marginBottom: spacing.md }}
                         onPress={() => {
-                          const fullUrl = displayedReport.photo_url!.startsWith('file://') ? displayedReport.photo_url! : API_BASE_URL + displayedReport.photo_url;
+                          let fullUrl = displayedReport.photo_url!;
+                          if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
+                            fullUrl = API_BASE_URL + fullUrl;
+                          }
                           import('react-native').then(rn => rn.Linking.openURL(fullUrl));
                         }}
                       >
@@ -1158,11 +1174,27 @@ Higher scores = urgent intervention needed.`
                       <TouchableOpacity
                         style={{ marginBottom: spacing.md }}
                         onPress={() => {
-                          setViewerUri(displayedReport.photo_url!.startsWith('file://') ? displayedReport.photo_url! : API_BASE_URL + displayedReport.photo_url);
+                          let fullUrl = displayedReport.photo_url!;
+                          if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
+                            fullUrl = API_BASE_URL + fullUrl;
+                          }
+                          setViewerUri(fullUrl);
                           setViewerVisible(true);
                         }}
                       >
-                        <Image source={{ uri: displayedReport.photo_url!.startsWith('file://') ? displayedReport.photo_url! : API_BASE_URL + displayedReport.photo_url }} style={{ width: '100%', height: 220, borderRadius: 16, backgroundColor: colors.textSecondary + '20' }} resizeMode="cover" />
+                        {(() => {
+                          let fullUrl = displayedReport.photo_url!;
+                          if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
+                            fullUrl = API_BASE_URL + fullUrl;
+                          }
+                          return (
+                            <Image 
+                              source={{ uri: fullUrl }} 
+                              style={{ width: '100%', height: 220, borderRadius: 16, backgroundColor: colors.textSecondary + '20' }} 
+                              resizeMode="cover" 
+                            />
+                          );
+                        })()}
                         <View style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', padding: 6, borderRadius: 20 }}>
                           <Feather name="maximize" size={16} color="#FFF" />
                         </View>

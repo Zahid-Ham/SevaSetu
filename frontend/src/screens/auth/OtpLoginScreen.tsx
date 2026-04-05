@@ -4,9 +4,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { PrimaryButton, MadeInIndiaBadge, GradientBackground } from '../../components';
+import { useAuthStore } from '../../services/store/useAuthStore';
 
 export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => void }) => {
   const navigation = useNavigation<any>();
+  const setRole = useAuthStore(state => state.setRole);
   const route = useRoute<any>();
   const role = route.params?.role || 'CITIZEN';
   
@@ -40,6 +42,7 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
 
   const handleVerify = () => {
     if (otp.length === 6) {
+      setRole(role);
       if (onSelectRole) {
         onSelectRole(role);
       }

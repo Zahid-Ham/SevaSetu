@@ -7,6 +7,19 @@ from app.services.firestore_service import save_report, get_all_reports, delete_
 from app.services.whisper_service import transcribe_audio # type: ignore
 from app.services.gemini_service import generate_field_report_from_multimedia # type: ignore
 from app.services.analysis_service import get_previous_complaints_insights # type: ignore
+import cloudinary
+import cloudinary.uploader
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Cloudinary configuration
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True
+)
 
 router = APIRouter()
 
@@ -72,22 +85,37 @@ async def create_field_report(
 @router.post("/upload-media")
 async def upload_media(file: UploadFile = File(...)):
     """
-    Saves a media file to local disk and returns the static URL.
-    This acts as a free alternative to Firebase Storage.
+    Saves a media file to Cloudinary and returns the URL and public_id.
     """
     try:
-        ext = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        filepath = os.path.join("uploads", filename)
+        file_bytes = await file.read()
         
-        with open(filepath, "wb") as f:
-            f.write(await file.read())
-            
+        # Determine resource type
+        resource_type = "auto"
+        if file.content_type and file.content_type.startswith("audio/"):
+            resource_type = "video" # Audio is handled under 'video' resource type in Cloudinary
+
+        result = cloudinary.uploader.upload(
+            file_bytes,
+            resource_type=resource_type,
+            folder="sevasetu/survey",
+            use_filename=True,
+            unique_filename=True,
+            overwrite=False,
+            filename_override=file.filename,
+        )
+        
         return {
             "success": True,
-            "url": f"/static/{filename}"
+            "url": result["secure_url"],
+            "public_id": result["public_id"],
+            "resource_type": result["resource_type"],
+            "format": result.get("format", ""),
+            "bytes": result.get("bytes", 0),
+            "version": str(result.get("version", ""))
         }
     except Exception as e:
+        print(f"[upload-media] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -120,14 +148,35 @@ async def delete_report_endpoint(report_id: str):
             data = doc.to_dict()
             photo_url = data.get("photo_url")
             audio_url = data.get("audio_url")
+            photo_public_id = data.get("photo_public_id")
+            audio_public_id = data.get("audio_public_id")
             
-            # Delete associated files if they are stored locally on backend
+            # Delete local files if legacy
             for url in [photo_url, audio_url]:
-                if url and url.startswith("/static/"):
+                if url and isinstance(url, str) and url.startswith("/static/"):
                     filename = url.replace("/static/", "")
                     filepath = os.path.join("uploads", filename)
                     if os.path.exists(filepath):
                         os.remove(filepath)
+            
+            # Delete Cloudinary assets
+            for pid in [photo_public_id, audio_public_id]:
+                if pid:
+                    try:
+                        # AUDIO is now uploaded as 'video' resource_type in Cloudinary
+                        is_audio = pid == audio_public_id
+                        rtype = "video" if is_audio else "image"
+                        
+                        # Try deletion
+                        res = cloudinary.uploader.destroy(pid, resource_type=rtype)
+                        
+                        # If first attempt fails and it's audio, it might be 'raw' (legacy)
+                        if res.get("result") != "ok" and is_audio:
+                            cloudinary.uploader.destroy(pid, resource_type="raw")
+                            
+                        print(f"[delete_report] Destroyed Cloudinary asset: {pid} (type: {rtype})")
+                    except Exception as ce:
+                        print(f"[delete_report] Failed to destroy Cloudinary asset {pid}: {ce}")
             
         delete_report(report_id)
         return {"success": True, "message": f"Report {report_id} and associated media deleted successfully."}

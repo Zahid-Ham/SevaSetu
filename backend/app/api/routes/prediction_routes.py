@@ -33,6 +33,10 @@ class ConfirmPredictionPayload(BaseModel):
     category: Optional[str] = None # Added for upsert
     description: Optional[str] = None # Added for upsert
     required_skills: Optional[List[str]] = None # Added for upsert
+    latitude: Optional[float] = None           # Added
+    longitude: Optional[float] = None          # Added
+    geofence_radius: Optional[float] = None    # Added
+    suggested_govt_scheme: Optional[str] = None # Added
 
 class ConfirmPredictionRequest(BaseModel):
     event_id: str
@@ -200,6 +204,10 @@ async def confirm_prediction(event_id: str, body: ConfirmPredictionPayload = Con
             "predicted_date_end": body.predicted_date_end or datetime.datetime.now().strftime("%Y-%m-%d"),
             "estimated_headcount": body.estimated_headcount or 10,
             "required_skills": body.required_skills or [],
+            "latitude": body.latitude,
+            "longitude": body.longitude,
+            "geofence_radius": body.geofence_radius or 150.0,
+            "suggested_govt_scheme": body.suggested_govt_scheme or "General",
             "status": "predicted"
         }
         # Save it first
@@ -217,6 +225,24 @@ async def confirm_prediction(event_id: str, body: ConfirmPredictionPayload = Con
     if body.estimated_headcount:
         updates["estimated_headcount"] = body.estimated_headcount
         event["estimated_headcount"] = body.estimated_headcount
+    if body.latitude is not None:
+        updates["latitude"] = body.latitude
+        event["latitude"] = body.latitude
+    if body.longitude is not None:
+        updates["longitude"] = body.longitude
+        event["longitude"] = body.longitude
+    if body.geofence_radius is not None:
+        updates["geofence_radius"] = body.geofence_radius
+        event["geofence_radius"] = body.geofence_radius
+    if body.required_skills is not None:
+        updates["required_skills"] = body.required_skills
+        event["required_skills"] = body.required_skills
+    if body.suggested_govt_scheme:
+        updates["suggested_govt_scheme"] = body.suggested_govt_scheme
+        event["suggested_govt_scheme"] = body.suggested_govt_scheme
+    if body.area:
+        updates["area"] = body.area
+        event["area"] = body.area
         
     if updates:
         event_firestore_service.update_predicted_event(event_id, updates)
@@ -439,6 +465,9 @@ class ManualEventRequest(BaseModel):
     predicted_date_end: str
     estimated_headcount: int
     required_skills: list[str]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    geofence_radius: Optional[float] = 150.0
     suggested_govt_scheme: Optional[str] = "General"
 
 @router.post("/events/manual")

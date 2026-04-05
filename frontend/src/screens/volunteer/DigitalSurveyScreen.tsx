@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AppHeader, PrimaryButton, GradientBackground } from '../../components';
 import { colors, spacing, typography } from '../../theme';
 import { API_BASE_URL } from '../../config/apiConfig';
+import { uploadToCloudinary, uploadSurveyMediaViaBackend } from '../../services/api/uploadToCloudinary';
 
 const PRIMARY_CATEGORIES = ['Water', 'Sanitation', 'Infrastructure', 'Health', 'Education', 'Safety', 'Other'];
 const SUB_CATEGORIES: Record<string, string[]> = {
@@ -124,11 +125,44 @@ export const DigitalSurveyScreen = () => {
     try {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') return;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const mp3Options = {
+        isMeteringEnabled: true,
+        android: {
+          extension: '.mp3',
+          outputFormat: 2, // MPEG_4
+          audioEncoder: 3, // AAC
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+        },
+        ios: {
+          extension: '.mp3',
+          audioQuality: 96, // HIGH
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/mpeg',
+          bitsPerSecond: 128000,
+        }
+      };
+
+      const { recording } = await Audio.Recording.createAsync(mp3Options as any);
       setRecording(recording);
       setIsRecording(true);
-    } catch (err) { }
+    } catch (err) {
+      console.error('Failed to start recording', err);
+    }
   };
 
   const stopRecording = async () => {
@@ -147,46 +181,37 @@ export const DigitalSurveyScreen = () => {
     setLoading(true);
     try {
       let uploadedPhotoUrl = undefined;
+      let uploadedPhotoPublicId = undefined;
       let uploadedAudioUrl = undefined;
+      let uploadedAudioPublicId = undefined;
 
-      // Uniquely upload photo if exists
+      // 1. Upload photo to Cloudinary
       if (photoUri) {
-        console.log('Uploading photo...');
-        const photoForm = new FormData();
-        const fname = photoUri.split('/').pop() || 'photo.jpg';
-        const type = fname.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        // @ts-ignore
-        photoForm.append('file', { uri: photoUri, type, name: fname });
-        
+        console.log('[DigitalSurvey] Uploading photo to Cloudinary...');
         try {
-          const pRes = await fetch(`${API_BASE_URL}/upload-media`, { method: 'POST', body: photoForm });
-          const pData = await pRes.json();
-          if (pData.success) uploadedPhotoUrl = pData.url;
+          const fname = photoUri.split('/').pop() || 'photo.jpg';
+          const type = fname.endsWith('.png') ? 'image/png' : 'image/jpeg';
+          const pRes = await uploadToCloudinary(photoUri, type, fname, 'sevasetu/survey');
+          uploadedPhotoUrl = pRes.url;
+          uploadedPhotoPublicId = pRes.publicId;
         } catch (e) {
-            console.error('Photo upload failed:', e);
+          console.error('[DigitalSurvey] Photo upload failed:', e);
+          uploadedPhotoUrl = photoUri; // Fallback
         }
       }
 
-      // Uniquely upload audio if exists
+      // 2. Upload audio to Cloudinary via backend signed upload
       if (audioUri) {
-        console.log('Uploading audio...');
-        const audioForm = new FormData();
-        const aname = audioUri.split('/').pop() || 'audio.m4a';
-        // @ts-ignore
-        audioForm.append('file', { uri: audioUri, type: 'audio/m4a', name: aname });
-        
+        console.log('[DigitalSurvey] Uploading audio to Cloudinary...');
         try {
-          const aRes = await fetch(`${API_BASE_URL}/upload-media`, { method: 'POST', body: audioForm });
-          const aData = await aRes.json();
-          if (aData.success) uploadedAudioUrl = aData.url;
+          const aRes = await uploadSurveyMediaViaBackend(audioUri, 'audio.mp3', 'audio/mpeg', API_BASE_URL);
+          uploadedAudioUrl = aRes.url;
+          uploadedAudioPublicId = aRes.publicId;
         } catch (e) {
-            console.error('Audio upload failed:', e);
+          console.error('[DigitalSurvey] Audio upload failed:', e);
+          uploadedAudioUrl = audioUri; // Fallback
         }
       }
-
-      // Fallback to local URIs if upload skipped or failed
-      uploadedPhotoUrl = uploadedPhotoUrl || (photoUri ? photoUri : undefined);
-      uploadedAudioUrl = uploadedAudioUrl || (audioUri ? audioUri : undefined);
 
       const payload = {
         citizen_name: citizenName,
@@ -211,7 +236,9 @@ export const DigitalSurveyScreen = () => {
         volunteer_id: 'vol_123',
         report_source: 'digital_form',
         photo_url: uploadedPhotoUrl,
-        audio_url: uploadedAudioUrl
+        photo_public_id: uploadedPhotoPublicId,
+        audio_url: uploadedAudioUrl,
+        audio_public_id: uploadedAudioPublicId
       };
 
       const response = await fetch(`${API_BASE_URL}/submit-report`, {

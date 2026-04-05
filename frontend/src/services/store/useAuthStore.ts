@@ -11,6 +11,7 @@ interface AuthState {
   user: User | null;
   hasOnboarded: boolean;
   setRole: (role: Role) => void;
+  setAuthSession: (user: User, role: Role) => void;
   login: (email: string, pass: string) => Promise<{ success: boolean; message: string }>;
   completeOnboarding: () => void;
   logout: () => void;
@@ -22,18 +23,32 @@ export const useAuthStore = create<AuthState>((set) => ({
   hasOnboarded: false,
   
   setRole: (role) => {
-    // If we're setting a role manually (like after volunteer approval)
-    // we should try to keep the same user object if possible, just update role
     set((state) => {
-      const newUser = state.user ? { ...state.user, role: role as any } : null;
+      // If we have a user from auth but no volunteerId set in event store yet, fix it
+      let newUser = state.user ? { ...state.user, role: role as any } : null;
       
-      // Update EventStore.volunteerId if we're now a volunteer
+      // MOCK FALLBACK: If we're setting a role but have no user (e.g. anonymous start or broken OTP)
+      // Pick a default from MOCK_USERS for the demo so we have a name/NGO context
+      if (!newUser && role) {
+        const defaultForRole = MOCK_USERS.find(u => u.role === role);
+        if (defaultForRole) newUser = { ...defaultForRole };
+      }
+      
       if (role === 'VOLUNTEER' && newUser) {
         useEventStore.getState().setVolunteerId(newUser.id);
       }
       
       return { role, user: newUser };
     });
+  },
+
+  setAuthSession: (user, role) => {
+    set({ user, role });
+    if (role === 'VOLUNTEER') {
+      const es = useEventStore.getState();
+      es.setVolunteerId(user.id);
+      es.syncVolunteerProfile(user);
+    }
   },
 
   login: async (email, pass) => {
@@ -44,7 +59,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       return { success: false, message: 'Invalid password' };
     }
 
-    const foundUser = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
+    const foundUser = MOCK_USERS.find(u => u.email.trim().toLowerCase() === email.trim().toLowerCase());
     if (foundUser) {
       let finalRole = foundUser.role;
       let finalUser = { ...foundUser };
@@ -70,8 +85,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       // Link to EventStore if volunteer
       if (finalRole === 'VOLUNTEER') {
-        useEventStore.getState().setVolunteerId(finalUser.id);
-        useEventStore.getState().loadVolunteerProfile(finalUser.id);
+        const eventStore = useEventStore.getState();
+        eventStore.setVolunteerId(finalUser.id);
+        
+        // SYNC: Ensure profile exists in Firestore and load assignments immediately
+        await eventStore.syncVolunteerProfile(finalUser);
+        await eventStore.loadAssignments(finalUser.id);
+        await eventStore.loadLiveMatches(finalUser.id);
       }
 
       return { success: true, message: 'Login successful' };

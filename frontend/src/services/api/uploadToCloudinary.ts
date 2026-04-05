@@ -31,6 +31,7 @@ export async function uploadToCloudinary(
   fileUri: string,
   fileType: string,
   fileName: string = 'upload',
+  folder: string = 'sevasetu/chat',
 ): Promise<UploadResult> {
   // Use 'auto' for images/videos — direct unsigned upload works fine.
   // PDFs must go through the backend (signed upload) — use uploadPdfViaBackend() instead.
@@ -43,7 +44,7 @@ export async function uploadToCloudinary(
     name: fileName,
   } as any);
   formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-  formData.append('folder', 'sevasetu/chat');
+  formData.append('folder', folder);
   // NOTE: Do NOT add access_mode here — it's NOT allowed for unsigned uploads.
   // access_mode is set on the backend for signed (PDF) uploads.
 
@@ -108,6 +109,47 @@ export async function uploadPdfViaBackend(
     publicId: data.public_id,
     resourceType: 'raw',
     format: data.format || 'pdf',
+    bytes: data.bytes || 0,
+    version: data.version ? String(data.version) : undefined,
+  };
+}
+
+/**
+ * Upload a survey media (audio/document) via the SevaSetu backend.
+ * Uses the /upload-media endpoint which sorts assets into sevasetu/survey.
+ */
+export async function uploadSurveyMediaViaBackend(
+  fileUri: string,
+  fileName: string,
+  fileType: string,
+  apiBaseUrl: string,
+): Promise<UploadResult> {
+  const formData = new FormData();
+  formData.append('file', {
+    uri: fileUri,
+    type: fileType,
+    name: fileName,
+  } as any);
+
+  const response = await fetch(`${apiBaseUrl}/upload-media`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error('[Survey Media Upload Error]', data);
+    throw new Error(data.detail || `Upload failed (${response.status})`);
+  }
+
+  console.log('[Survey Media Upload Success]', data.url);
+
+  return {
+    url: data.url,
+    publicId: data.public_id,
+    resourceType: data.resource_type || 'raw',
+    format: data.format || '',
     bytes: data.bytes || 0,
     version: data.version ? String(data.version) : undefined,
   };

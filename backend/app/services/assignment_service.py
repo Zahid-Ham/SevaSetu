@@ -93,6 +93,9 @@ def run_auto_assignment(
             "event_date_start": event_start,
             "event_date_end": event_end,
             "event_required_skills": required_skills,
+            "event_latitude": event.get("latitude"),
+            "event_longitude": event.get("longitude"),
+            "event_geofence_radius": event.get("geofence_radius"),
             "status": "pending",
             "is_fallback": False,
         })
