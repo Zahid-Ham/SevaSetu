@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, StyleSheet, Text, Image, ScrollView, TextInput,
   TouchableOpacity, RefreshControl, Animated, Easing, Alert, ActivityIndicator,
-  Modal, TouchableWithoutFeedback, Dimensions
+  Modal, TouchableWithoutFeedback, Dimensions, Linking
 } from 'react-native';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import * as ImagePicker from 'expo-image-picker';
@@ -92,6 +92,8 @@ type Report = {
   photo_public_id?: string;
   audio_url?: string;
   audio_public_id?: string;
+  report_source?: string;
+  field_report_data?: string;
 };
 
 type ScreenMode = 'idle' | 'processing' | 'preview' | 'success';
@@ -395,7 +397,8 @@ const AnalyzingScreen = ({ fileUris }: { fileUris: string[] }) => {
 
 export const ScanSurveyScreen = () => {
   const route = useRoute<any>();
-  const [mainView, setMainView] = useState<'scan_home' | 'field_report'>('scan_home');
+  const [mainView, setMainView] = useState<'scan_home' | 'field_report' | 'field_report_viewer'>('scan_home');
+  const [savedFieldReportData, setSavedFieldReportData] = useState<any>(null);
   const [mode, setMode] = useState<ScreenMode>('idle');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -567,7 +570,269 @@ export const ScanSurveyScreen = () => {
   };
 
   if (mainView === 'field_report') {
-    return <FieldReportScreen onBack={() => setMainView('scan_home')} />;
+    return <FieldReportScreen onBack={() => setMainView('scan_home')} onComplete={fetchReports} />;
+  }
+
+  // ── Field Report Viewer (for saved reports from Recent Scans) ──
+  if (mainView === 'field_report_viewer' && savedFieldReportData) {
+    const fr = savedFieldReportData;
+    const C = { orange: '#FF6D00', violet: '#7C4DFF', blue: '#2979FF', green: '#00C853', yellow: '#FFB300', red: '#FF1744', teal: '#00BFA5' };
+    const getEvColor = (t: string) => {
+      switch(t?.toLowerCase()) {
+        case 'audio': return colors.primarySaffron;
+        case 'video': return '#E53935';
+        case 'image': return colors.accentBlue;
+        case 'pdf': return '#795548';
+        case 'community': return '#9C27B0';
+        default: return colors.primaryGreen;
+      }
+    };
+    const getEvIcon = (t: string) => {
+      switch(t?.toLowerCase()) {
+        case 'audio': return 'mic';
+        case 'video': return 'video';
+        case 'image': return 'image';
+        case 'pdf': return 'file-text';
+        case 'community': return 'users';
+        default: return 'file';
+      }
+    };
+    return (
+      <View style={{ flex: 1, backgroundColor: '#f0f2f5' }}>
+        <AppHeader title={fr.report_type || 'Field Report'} showBack onBackPress={() => { setMainView('scan_home'); setSavedFieldReportData(null); }} />
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Hero */}
+          <View style={{ backgroundColor: '#1B2838', paddingTop: 30, paddingBottom: 22, paddingHorizontal: 20, alignItems: 'center', borderBottomLeftRadius: 28, borderBottomRightRadius: 28 }}>
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
+              <Feather name="check" size={30} color="#fff" />
+            </View>
+            <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 0.5 }}>Report Ready</Text>
+            <Text style={{ color: C.orange, fontSize: 14, fontWeight: '700', marginTop: 4 }}>{fr.report_type}</Text>
+            <View style={{ flexDirection: 'row', gap: 20, marginTop: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Feather name="map-pin" size={12} color="#aaa" />
+                <Text style={{ color: '#ccc', fontSize: 11, fontWeight: '600' }}>{fr.location_summary}</Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', marginTop: 18, gap: 10, width: '100%' }}>
+              {[
+                { num: fr.media_library?.length || fr.evidence_breakdown?.length || 0, label: 'Evidence', color: C.blue },
+                { num: fr.community_voice?.length || 0, label: 'Surveyed', color: C.violet },
+                { num: fr.key_findings?.length || 0, label: 'Findings', color: C.orange },
+              ].map((s, i) => (
+                <View key={i} style={{ flex: 1, backgroundColor: s.color + '15', borderRadius: 14, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: s.color + '30' }}>
+                  <Text style={{ color: s.color, fontSize: 22, fontWeight: '900' }}>{s.num}</Text>
+                  <Text style={{ color: s.color + 'AA', fontSize: 9, fontWeight: '700', textTransform: 'uppercase', marginTop: 2, letterSpacing: 0.5 }}>{s.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={{ padding: 16 }}>
+            {/* Executive Summary (Orange) */}
+            <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2 }}>
+              <View style={{ backgroundColor: C.orange + '12', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.orange + '20' }}>
+                <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.orange, justifyContent: 'center', alignItems: 'center' }}>
+                  <Feather name="file-text" size={13} color="#fff" />
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.orange, textTransform: 'uppercase', letterSpacing: 0.5 }}>Executive Summary</Text>
+              </View>
+              <View style={{ padding: 16 }}>
+                {Array.isArray(fr.executive_summary) ? (
+                  fr.executive_summary.map((b: string, i: number) => (
+                    <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 }}>
+                      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.orange, marginTop: 6 }} />
+                      <Text style={{ flex: 1, fontSize: 13, lineHeight: 20, color: '#444' }}>{b}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={{ fontSize: 13, lineHeight: 20, color: '#444' }}>{fr.executive_summary}</Text>
+                )}
+              </View>
+            </View>
+
+            {/* Evidence Analysis (Blue) */}
+            {fr.evidence_breakdown?.length > 0 && (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2 }}>
+                <View style={{ backgroundColor: C.blue + '12', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.blue + '20' }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.blue, justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="search" size={13} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5 }}>Evidence Analysis</Text>
+                  <View style={{ flex: 1 }} />
+                  <View style={{ backgroundColor: C.blue + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: C.blue }}>{fr.evidence_breakdown.length} items</Text>
+                  </View>
+                </View>
+                <View style={{ padding: 12 }}>
+                  {fr.evidence_breakdown.map((ev: any, i: number) => {
+                    const evType = ev.evidence_type?.toLowerCase() || 'note';
+                    const evColor = getEvColor(evType);
+                    const mediaUrl = fr.media_library?.find((m: any) => m.type === evType)?.url || ev.url;
+                    return (
+                      <View key={i} style={{ backgroundColor: evColor + '08', borderRadius: 12, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: evColor }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                          <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: evColor + '18', justifyContent: 'center', alignItems: 'center' }}>
+                            <Feather name={getEvIcon(evType) as any} size={16} color={evColor} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: '700', fontSize: 13, color: '#333' }}>{ev.evidence_label || ev.evidence_type}</Text>
+                            <Text style={{ fontSize: 9, color: evColor, textTransform: 'uppercase', fontWeight: '700', letterSpacing: 0.5 }}>{ev.evidence_type}</Text>
+                          </View>
+                          {mediaUrl && (
+                            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.blue + '12', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }} onPress={() => Linking.openURL(mediaUrl)}>
+                              <Feather name="eye" size={12} color={C.blue} />
+                              <Text style={{ fontSize: 11, color: C.blue, fontWeight: '700' }}>View</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        {ev.three_line_extraction?.map((line: string, j: number) => (
+                          <Text key={j} style={{ fontSize: 12, color: '#555', lineHeight: 18, paddingLeft: 42, marginBottom: 3 }}>• {line}</Text>
+                        ))}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* Conclusion (Green) */}
+            {fr.evidence_conclusion && (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2, borderLeftWidth: 4, borderLeftColor: C.green }}>
+                <View style={{ backgroundColor: C.green + '10', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.green + '20' }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="check-circle" size={13} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5 }}>Conclusion</Text>
+                </View>
+                <View style={{ padding: 16 }}>
+                  {Array.isArray(fr.evidence_conclusion) ? (
+                    fr.evidence_conclusion.map((b: string, i: number) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 }}>
+                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.green, marginTop: 6 }} />
+                        <Text style={{ flex: 1, fontSize: 13, lineHeight: 20, color: '#444' }}>{b}</Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={{ fontSize: 13, lineHeight: 20, color: '#444' }}>{fr.evidence_conclusion}</Text>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Key Findings (Yellow) */}
+            {fr.key_findings?.length > 0 && (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2 }}>
+                <View style={{ backgroundColor: C.yellow + '15', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.yellow + '25' }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.yellow, justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="zap" size={13} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', textTransform: 'uppercase', letterSpacing: 0.5 }}>Key Findings</Text>
+                </View>
+                <View style={{ padding: 14 }}>
+                  {fr.key_findings.map((f: any, i: number) => (
+                    <View key={i} style={{ flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'flex-start' }}>
+                      <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: C.yellow + '20', justifyContent: 'center', alignItems: 'center', marginTop: 1 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: '#E65100' }}>{i + 1}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', fontSize: 13, color: '#333' }}>{f.category}</Text>
+                        <Text style={{ fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 }}>{f.observation}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Needs Assessment (Red) */}
+            {fr.needs_assessment?.length > 0 && (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2 }}>
+                <View style={{ backgroundColor: C.red + '0A', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.red + '15' }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.red, justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="alert-triangle" size={13} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.red, textTransform: 'uppercase', letterSpacing: 0.5 }}>Needs Assessment</Text>
+                </View>
+                <View style={{ padding: 12 }}>
+                  {fr.needs_assessment.map((n: any, i: number) => {
+                    const isCrit = n.severity === 'High' || n.severity === 'Critical';
+                    return (
+                      <View key={i} style={{ backgroundColor: isCrit ? C.red + '06' : '#f8f9fa', padding: 12, borderRadius: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: isCrit ? C.red : C.teal }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ fontWeight: '700', fontSize: 13, flex: 1, color: '#333' }}>{n.need}</Text>
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: isCrit ? C.red + '15' : C.teal + '15' }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: isCrit ? C.red : C.teal }}>{n.severity}</Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 12, color: '#666', marginTop: 4, lineHeight: 17 }}>{n.rationale}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* Community Voice (Violet) */}
+            {fr.community_voice?.length > 0 && (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2 }}>
+                <View style={{ backgroundColor: C.violet + '10', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.violet + '20' }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.violet, justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="message-circle" size={13} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.violet, textTransform: 'uppercase', letterSpacing: 0.5 }}>Community Voice</Text>
+                </View>
+                <View style={{ padding: 12 }}>
+                  {fr.community_voice.map((cv: any, i: number) => (
+                    <View key={i} style={{ backgroundColor: C.violet + '06', borderRadius: 12, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.violet }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: C.violet + '18', justifyContent: 'center', alignItems: 'center' }}>
+                          <Feather name="user" size={11} color={C.violet} />
+                        </View>
+                        <Text style={{ fontWeight: '700', fontSize: 13, flex: 1, color: '#333' }}>{cv.member}</Text>
+                        {cv.media_captured && (
+                          <Text style={{ fontSize: 9, color: C.violet, backgroundColor: C.violet + '12', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, fontWeight: '700', textTransform: 'uppercase' }}>{cv.media_captured}</Text>
+                        )}
+                      </View>
+                      <Text style={{ fontSize: 13, color: '#555', lineHeight: 18 }}>{cv.summary}</Text>
+                      {cv.notable_quote && (
+                        <View style={{ backgroundColor: C.violet + '08', borderRadius: 8, padding: 8, marginTop: 6 }}>
+                          <Text style={{ fontSize: 12, color: C.violet, fontStyle: 'italic' }}>"{cv.notable_quote}"</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Follow-up (Teal) */}
+            {fr.recommended_follow_up?.length > 0 && (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, overflow: 'hidden', elevation: 2 }}>
+                <View style={{ backgroundColor: C.teal + '10', paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.teal + '20' }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.teal, justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="arrow-right-circle" size={13} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.teal, textTransform: 'uppercase', letterSpacing: 0.5 }}>Follow-up Actions</Text>
+                </View>
+                <View style={{ padding: 14 }}>
+                  {fr.recommended_follow_up.map((item: string, i: number) => (
+                    <View key={i} style={{ flexDirection: 'row', gap: 10, marginBottom: 8, alignItems: 'flex-start' }}>
+                      <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: C.teal + '15', justifyContent: 'center', alignItems: 'center', marginTop: 1 }}>
+                        <Feather name="chevron-right" size={12} color={C.teal} />
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 13, color: '#444', lineHeight: 19 }}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <PrimaryButton title="Done" onPress={() => { setMainView('scan_home'); setSavedFieldReportData(null); }} style={{ marginVertical: 20 }} />
+          </View>
+        </ScrollView>
+      </View>
+    );
   }
 
   const renderPreviewForm = () => {
@@ -718,7 +983,20 @@ export const ScanSurveyScreen = () => {
                 key={r.id}
                 activeOpacity={0.75}
                 style={[styles.reportCard, { borderLeftWidth: 4, borderLeftColor: iColor }]}
-                onPress={() => { setDisplayedReport(r); bottomSheetRef.current?.expand(); }}
+                onPress={() => {
+                  // If it's a field report, open the dedicated viewer
+                  if (r.report_source === 'field_report' && r.field_report_data) {
+                    try {
+                      const parsed = typeof r.field_report_data === 'string' ? JSON.parse(r.field_report_data) : r.field_report_data;
+                      setSavedFieldReportData(parsed);
+                      setMainView('field_report_viewer');
+                    } catch { 
+                      setDisplayedReport(r); bottomSheetRef.current?.expand(); 
+                    }
+                  } else {
+                    setDisplayedReport(r); bottomSheetRef.current?.expand();
+                  }
+                }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 6 }}>
                   <View style={[styles.reportBadge, { backgroundColor: iColor + '15' }]}>
@@ -1538,4 +1816,17 @@ const styles = StyleSheet.create({
   schemeCard: { backgroundColor: '#1976D210', borderRadius: 12, padding: spacing.md, marginBottom: spacing.md, borderLeftWidth: 3, borderLeftColor: '#1976D2' },
   schemeName: { ...typography.bodyText, fontWeight: '800', color: '#0D47A1', flex: 1 },
   schemeReason: { ...typography.captionText, color: colors.textPrimary, lineHeight: 18, fontSize: 12 },
+});
+
+// Styles for field report viewer
+const frStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+  },
+  cardTitle: { fontSize: 14, fontWeight: '800', color: colors.primaryGreen, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  body: { fontSize: 14, lineHeight: 21, color: colors.textSecondary },
+  bRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 },
+  bDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.primaryGreen, marginTop: 6 },
+  bText: { flex: 1, fontSize: 13, lineHeight: 20, color: colors.textSecondary },
 });

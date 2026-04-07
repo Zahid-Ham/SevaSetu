@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Heatmap } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MapMarker } from './MapMarker';
 import { colors, spacing, typography, globalStyles } from '../../theme';
@@ -18,12 +18,35 @@ interface CrisisMapProps {
   issues: Issue[];
   onIssuePress?: (issue: Issue) => void;
   hideDefaultCard?: boolean;
+  showHeatmap?: boolean;
+  focusedIssueId?: string | null;
 }
 
-export const CrisisMap: React.FC<CrisisMapProps> = ({ issues, onIssuePress, hideDefaultCard = false }) => {
+export const CrisisMap: React.FC<CrisisMapProps> = ({ 
+  issues, 
+  onIssuePress, 
+  hideDefaultCard = false,
+  showHeatmap = true,
+  focusedIssueId = null
+}) => {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+  const [isMapReady, setIsMapReady] = useState(false);
+
+  const mapRef = React.useRef<MapView | null>(null);
+
+  // Focus User Logic
+  const focusOnUser = (coords: { latitude: number, longitude: number }) => {
+    if (mapRef.current && isMapReady) {
+      mapRef.current.animateToRegion({
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      }, 1000);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -33,25 +56,43 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({ issues, onIssuePress, hide
         return;
       }
 
-      let currentLocation = await Location.getCurrentPositionAsync({});
-      setLocation(currentLocation);
-    })();
-  }, []);
+      // Try fast last known position first
+      const lastPos = await Location.getLastKnownPositionAsync({});
+      if (lastPos) {
+        setLocation(lastPos);
+        if (isMapReady) focusOnUser(lastPos.coords);
+      }
 
-  const getMarkerType = (priority: Issue['priority']): 'alert' | 'resource' | 'user' => {
-    switch (priority) {
-      case 'urgent': return 'alert';
-      case 'medium': return 'user'; // We'll map Yellow/Medium to AccentBlue user-style marker for now, or you could extend MapMarker
-      case 'resolved': return 'resource';
-      default: return 'alert';
+      // Then get precise current position
+      let currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      setLocation(currentLocation);
+      if (isMapReady) focusOnUser(currentLocation.coords);
+    })();
+  }, [isMapReady]);
+
+  useEffect(() => {
+    if (focusedIssueId && isMapReady) {
+      const issue = issues.find(i => i.id === focusedIssueId);
+      if (issue) {
+        setSelectedIssue(issue);
+        mapRef.current?.animateToRegion({
+          latitude: issue.latitude,
+          longitude: issue.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }, 1000);
+      }
     }
-  };
+  }, [focusedIssueId, isMapReady]);
 
   const getMarkerColorOverride = (priority: Issue['priority']) => {
     switch(priority) {
       case 'urgent': return colors.error; // Red
       case 'medium': return colors.warning; // Yellow
       case 'resolved': return colors.success; // Green
+      default: return colors.error;
     }
   }
 
@@ -60,32 +101,60 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({ issues, onIssuePress, hide
     if (onIssuePress) onIssuePress(issue);
   };
 
+  // Prepare points for Heatmap
+  const heatmapPoints = issues.map(iss => ({
+    latitude: iss.latitude,
+    longitude: iss.longitude,
+    weight: iss.priority === 'urgent' ? 3 : iss.priority === 'medium' ? 2 : 1
+  }));
+
   return (
     <View style={styles.container}>
       <MapView 
+        ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
+        onMapReady={() => setIsMapReady(true)}
         showsUserLocation={true}
+        showsMyLocationButton={true}
         initialRegion={{
-          latitude: location?.coords.latitude || 28.6139,
-          longitude: location?.coords.longitude || 77.2090,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
+          latitude: 28.6139,
+          longitude: 77.2090,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
         }}
-        region={location ? {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        } : undefined}
       >
+        {location && (
+          <Marker
+            coordinate={{ latitude: location.coords.latitude, longitude: location.coords.longitude }}
+            title="You Are Here"
+            description="Supervisor's current location"
+          >
+            <View style={styles.userMarkerOuter}>
+              <View style={styles.userMarkerInner} />
+            </View>
+          </Marker>
+        )}
+
+        {showHeatmap && heatmapPoints.length > 0 && (
+          <Heatmap
+            points={heatmapPoints}
+            radius={40}
+            opacity={0.7}
+            gradient={{
+              colors: ['#00FF00', '#FBBF24', '#EF4444'],
+              startPoints: [0.2, 0.5, 0.8],
+              colorMapSize: 256,
+            }}
+          />
+        )}
+
         {issues.map((issue) => (
           <Marker
             key={issue.id}
             coordinate={{ latitude: issue.latitude, longitude: issue.longitude }}
             onPress={() => handleMarkerPress(issue)}
           >
-            {/* Using a custom View here instead of MapMarker to strictly enforce the requested Red/Yellow/Green coloring easily */}
             <View style={[styles.customMarker, { backgroundColor: getMarkerColorOverride(issue.priority) }]} />
           </Marker>
         ))}
@@ -103,13 +172,18 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({ issues, onIssuePress, hide
           style={[globalStyles.card, styles.detailCard]}
           onPress={() => setSelectedIssue(null)}
         >
-          <View style={[styles.priorityBadge, { backgroundColor: getMarkerColorOverride(selectedIssue.priority) + '20' }]}>
-            <Text style={[styles.priorityText, { color: getMarkerColorOverride(selectedIssue.priority) }]}>
-              {selectedIssue.priority.toUpperCase()}
+          <View style={styles.detailHeader}>
+            <View style={[styles.priorityBadge, { backgroundColor: getMarkerColorOverride(selectedIssue.priority) + '20' }]}>
+              <Text style={[styles.priorityText, { color: getMarkerColorOverride(selectedIssue.priority) }]}>
+                {selectedIssue.priority.toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.coordsText}>
+              {selectedIssue.latitude.toFixed(4)}, {selectedIssue.longitude.toFixed(4)}
             </Text>
           </View>
           <Text style={[typography.headingSmall, styles.issueTitle]} numberOfLines={1}>{selectedIssue.title}</Text>
-          <Text style={[typography.bodyText, styles.issueDesc]} numberOfLines={2}>{selectedIssue.description}</Text>
+          <Text style={[typography.bodyText, styles.issueDesc]} numberOfLines={3}>{selectedIssue.description}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -159,12 +233,21 @@ const styles = StyleSheet.create({
     zIndex: 10,
     elevation: 10,
   },
+  detailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  coordsText: {
+    ...typography.captionText,
+    color: colors.textSecondary,
+    fontSize: 10,
+  },
   priorityBadge: {
-    alignSelf: 'flex-start',
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: 12,
-    marginBottom: spacing.xs,
   },
   priorityText: {
     ...typography.captionText,
@@ -172,9 +255,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   issueTitle: {
-    marginBottom: spacing.xs,
+    marginBottom: 2,
   },
   issueDesc: {
     color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  userMarkerOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(26, 35, 126, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userMarkerInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.accentBlue,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
 });

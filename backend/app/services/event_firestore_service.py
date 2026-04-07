@@ -323,6 +323,66 @@ def save_feedback(feedback_data: dict) -> str:
 
 
 # ─────────────────────────────────────────────
+#  MISSION TASKS
+# ─────────────────────────────────────────────
+
+def create_task(assignment_id: str, description: str, proof_required: bool = False) -> str:
+    task_data = {
+        "assignment_id": assignment_id,
+        "description": description,
+        "status": "pending",
+        "proof_required": proof_required,
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "completed_at": None,
+        "proof_url": None,
+    }
+    _, doc_ref = db.collection("mission_tasks").add(task_data)
+    return doc_ref.id
+
+
+def get_tasks_for_assignment(assignment_id: str) -> list:
+    docs = db.collection("mission_tasks") \
+             .where(filter=FieldFilter("assignment_id", "==", assignment_id)) \
+             .stream()
+    tasks = []
+    for doc in docs:
+        data = doc.to_dict()
+        data["id"] = doc.id
+        tasks.append(_serialize_timestamps(data))
+    return tasks
+
+
+def update_task_status(task_id: str, status: str, proof_url: Optional[str] = None) -> None:
+    updates = {
+        "status": status,
+        "updated_at": firestore.SERVER_TIMESTAMP,
+    }
+    if status == "completed":
+        updates["completed_at"] = firestore.SERVER_TIMESTAMP
+        
+    if proof_url:
+        updates["proof_url"] = proof_url
+        
+    db.collection("mission_tasks").document(task_id).update(updates)
+
+def get_task(task_id: str) -> Optional[dict]:
+    """Fetches a single mission task by ID."""
+    doc = db.collection("mission_tasks").document(task_id).get()
+    if not doc.exists:
+        return None
+    data = doc.to_dict()
+    data["id"] = doc.id
+    return _serialize_timestamps(data)
+
+def update_task_verification(task_id: str, ai_verification: dict) -> None:
+    """Updates the AI verification metadata for a task."""
+    db.collection("mission_tasks").document(task_id).update({
+        "ai_verification": ai_verification,
+        "ai_verified_at": firestore.SERVER_TIMESTAMP,
+    })
+
+
+# ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
 

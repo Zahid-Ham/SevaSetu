@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, ScrollView, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { GradientBackground, SectionTitle, MissionCard, StatCard, GradientButton, UserAvatar } from '../../components';
 import { colors, spacing, typography } from '../../theme';
@@ -8,6 +8,7 @@ import { MOCK_MISSIONS, MOCK_VOLUNTEER_STATS } from '../../services/mock';
 import { useEventStore } from '../../services/store/useEventStore';
 import { useChatStore } from '../../services/store/useChatStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { reportStorage } from '../../services/storage/reportStorage';
 
 export const VolunteerHomeScreen = () => {
   const navigation = useNavigation<any>();
@@ -25,8 +26,14 @@ export const VolunteerHomeScreen = () => {
 
   const { role, user } = useAuthStore();
   const { rooms, loadRooms } = useChatStore();
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
   const currentUserId = user?.id || volunteerId;
+
+  const checkSyncQueue = async () => {
+    const queue = await reportStorage.getSyncQueue();
+    setPendingSyncCount(queue.length);
+  };
 
   useFocusEffect(
     React.useCallback(() => {
@@ -37,6 +44,7 @@ export const VolunteerHomeScreen = () => {
         loadLiveMatches(currentUserId);
         loadRooms(currentUserId);
       }
+      checkSyncQueue();
     }, [currentUserId])
   );
 
@@ -67,6 +75,18 @@ export const VolunteerHomeScreen = () => {
             {totalUnread > 0 && (
               <View style={[styles.chatBadge, totalUnread > 9 && styles.chatBadgeWide]}>
                 <Text style={styles.chatBadgeText}>{totalUnread > 99 ? '99+' : totalUnread}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('SyncDashboard')}
+            style={styles.chatHeaderBtn}
+          >
+            <Feather name="cloud" size={24} color={pendingSyncCount > 0 ? colors.error : colors.primaryGreen} />
+            {pendingSyncCount > 0 && (
+              <View style={styles.chatBadge}>
+                <Text style={styles.chatBadgeText}>{pendingSyncCount}</Text>
               </View>
             )}
           </TouchableOpacity>

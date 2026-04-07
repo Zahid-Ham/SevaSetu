@@ -6,16 +6,19 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { uploadGenericFile } from '../../services/api/UploadService';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Animated, ActivityIndicator, RefreshControl, Modal,
-  TouchableWithoutFeedback,
+  TouchableWithoutFeedback, TextInput, Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
-import { LiveMatch, VolunteerAssignment } from '../../services/api/eventPredictionService';
+import { LiveMatch, VolunteerAssignment, MissionTask } from '../../services/api/eventPredictionService';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { AppHeader } from '../../components';
 
@@ -281,6 +284,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
   const [reasoningMatch, setReasoningMatch] = useState<any>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterOptions>(DEFAULT_FILTERS);
+  const [activeAssignmentForTasks, setActiveAssignmentForTasks] = useState<VolunteerAssignment | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const {
@@ -526,7 +530,11 @@ export const AssignmentScreen = ({ navigation }: any) => {
                   <Text style={styles.emptySubtitle}>Missions you accept will appear here.</Text>
                 </View>
               ) : acceptedList.map((a) => (
-                <HistoryCard key={a.id} assignment={a} />
+                <HistoryCard 
+                  key={a.id} 
+                  assignment={a} 
+                  onViewTasks={() => setActiveAssignmentForTasks(a)}
+                />
               ))}
             </>
           )}
@@ -540,7 +548,11 @@ export const AssignmentScreen = ({ navigation }: any) => {
                   <Text style={styles.emptySubtitle}>Your declined assignment history will appear here.</Text>
                 </View>
               ) : pastList.map((a) => (
-                <HistoryCard key={a.id} assignment={a} />
+                <HistoryCard 
+                  key={a.id} 
+                  assignment={a} 
+                  onViewTasks={() => setActiveAssignmentForTasks(a)}
+                />
               ))}
             </>
           )}
@@ -564,6 +576,13 @@ export const AssignmentScreen = ({ navigation }: any) => {
         onReset={() => setFilters(DEFAULT_FILTERS)}
         onClose={() => setShowFilters(false)}
         availableSkills={Object.keys(SKILL_ICONS)}
+      />
+
+      {/* Volunteer Tasks Modal */}
+      <VolunteerTaskModal
+        visible={!!activeAssignmentForTasks}
+        assignment={activeAssignmentForTasks!}
+        onClose={() => setActiveAssignmentForTasks(null)}
       />
     </View>
   );
@@ -747,7 +766,10 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
 
 // ── History Card (Accepted / Past) ─────────────────────────────────────────────
 
-const HistoryCard = ({ assignment }: { assignment: VolunteerAssignment }) => {
+const HistoryCard = ({ assignment, onViewTasks }: { 
+  assignment: VolunteerAssignment;
+  onViewTasks?: () => void;
+}) => {
   const isAccepted = assignment.status === 'accepted';
   const color = isAccepted ? colors.success : colors.error;
   const label = isAccepted ? '✅ Accepted' : '❌ Declined';
@@ -775,7 +797,157 @@ const HistoryCard = ({ assignment }: { assignment: VolunteerAssignment }) => {
           </View>
         ))}
       </View>
+
+      {isAccepted && (
+        <TouchableOpacity style={styles.viewTasksBtn} onPress={onViewTasks}>
+          <Feather name="list" size={14} color={colors.primaryGreen} />
+          <Text style={styles.viewTasksBtnText}>View Mission Tasks</Text>
+        </TouchableOpacity>
+      )}
     </View>
+  );
+};
+
+// ── Volunteer Task Modal ───────────────────────────────────────────────────────
+
+const VolunteerTaskModal = ({ visible, assignment, onClose }: {
+  visible: boolean;
+  assignment: VolunteerAssignment;
+  onClose: () => void;
+}) => {
+  const { tasks, loadTasks, completeTask, loadingAction } = useEventStore();
+  
+  useEffect(() => {
+    if (visible && assignment) {
+      loadTasks(assignment.id);
+    }
+  }, [visible, assignment]);
+
+  const assignmentTasks = assignment ? tasks[assignment.id] || [] : [];
+
+  const handleComplete = async (taskId: string, proofRequired: boolean) => {
+    if (proofRequired) {
+      Alert.alert(
+        "Proof Attachment Required",
+        "Select the type of proof you want to attach.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Image or Video", 
+            onPress: async () => {
+              const res = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.All,
+                quality: 0.8,
+              });
+              if (!res.canceled && res.assets && res.assets[0]) {
+                const asset = res.assets[0];
+                const proofUrl = await uploadGenericFile(asset.uri, asset.fileName || 'proof_media', asset.mimeType || 'image/jpeg');
+                if (proofUrl) {
+                  await completeTask(taskId, assignment.id, proofUrl);
+                  Alert.alert("Submitted", "Your proof has been submitted for review.");
+                } else {
+                  Alert.alert("Upload Failed", "Could not upload the attachment. Please try again.");
+                }
+              }
+            } 
+          },
+          {
+            text: "Document / PDF",
+            onPress: async () => {
+              const res = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+              });
+              if (!res.canceled && res.assets && res.assets[0]) {
+                const asset = res.assets[0];
+                const proofUrl = await uploadGenericFile(asset.uri, asset.name, asset.mimeType || 'application/pdf');
+                if (proofUrl) {
+                  await completeTask(taskId, assignment.id, proofUrl);
+                  Alert.alert("Submitted", "Your document has been submitted for review.");
+                } else {
+                  Alert.alert("Upload Failed", "Could not upload the document. Please try again.");
+                }
+              }
+            }
+          }
+        ]
+      );
+    } else {
+      await completeTask(taskId, assignment.id);
+    }
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>Mission Tasks</Text>
+              <Text style={styles.modalSub}>{assignment.event_type}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
+              <Feather name="x" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            {assignmentTasks.length === 0 ? (
+              <View style={styles.emptyTasks}>
+                <Feather name="clipboard" size={48} color={colors.textSecondary} style={{ opacity: 0.2 }} />
+                <Text style={styles.emptyTasksText}>No specific tasks assigned for this mission yet.</Text>
+              </View>
+            ) : (
+              assignmentTasks.map((t) => (
+                <View key={t.id} style={styles.taskItem}>
+                  <View style={styles.taskMain}>
+                    <Text style={[styles.taskDesc, (t.status === 'under_review' || t.status === 'completed') && styles.taskDescDone]}>
+                      {t.description}
+                    </Text>
+                    {t.proof_required && t.status === 'pending' && (
+                      <Text style={styles.proofNote}>📌 Proof required (photo/document)</Text>
+                    )}
+                    {t.status === 'under_review' && (
+                      <View style={styles.completedRow}>
+                        <Feather name="clock" size={14} color={colors.warning} />
+                        <Text style={[styles.completedText, { color: colors.warning }]}>Under Review</Text>
+                      </View>
+                    )}
+                    {t.status === 'completed' && (
+                      <View style={styles.completedRow}>
+                        <Feather name="check-circle" size={14} color={colors.success} />
+                        <Text style={styles.completedText}>Completed</Text>
+                      </View>
+                    )}
+                    {t.status === 'rejected' && (
+                      <View style={styles.completedRow}>
+                        <Feather name="alert-triangle" size={14} color={colors.error} />
+                        <Text style={[styles.completedText, { color: colors.error }]}>Proof Rejected - Please Re-submit</Text>
+                      </View>
+                    )}
+                  </View>
+                  
+                  {(t.status === 'pending' || t.status === 'rejected') && (
+                    <TouchableOpacity 
+                      style={[styles.completeTaskBtn, t.status === 'rejected' && { backgroundColor: colors.error }]} 
+                      onPress={() => handleComplete(t.id, t.proof_required)}
+                      disabled={loadingAction}
+                    >
+                      <Text style={styles.completeTaskBtnText}>{t.status === 'rejected' ? 'Re-submit' : 'Submit'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))
+            )}
+          </ScrollView>
+
+          <TouchableOpacity style={styles.closeFullBtn} onPress={onClose}>
+            <Text style={styles.closeFullBtnText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -876,6 +1048,29 @@ const styles = StyleSheet.create({
   noResultsSub: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.xl },
   clearFiltersBtn: { marginTop: spacing.md, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.primaryGreen + '10' },
   clearFiltersText: { color: colors.primaryGreen, fontWeight: '700' },
+
+  // Mission Task Styles
+  viewTasksBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  viewTasksBtnText: { fontSize: 13, fontWeight: '700' as const, color: colors.primaryGreen },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '80%', padding: spacing.md },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
+  modalTitle: { fontSize: 20, fontWeight: '800' as const, color: colors.textPrimary },
+  modalSub: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
+  modalCloseBtn: { padding: 4 },
+  taskItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  taskMain: { flex: 1, marginRight: spacing.md },
+  taskDesc: { fontSize: 15, color: colors.textPrimary, fontWeight: '500' as const },
+  taskDescDone: { textDecorationLine: 'line-through', color: colors.textSecondary, opacity: 0.6 },
+  proofNote: { fontSize: 11, color: colors.accentBlue, fontWeight: '600' as const, marginTop: 4 },
+  completedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  completedText: { fontSize: 12, color: colors.success, fontWeight: '700' as const },
+  completeTaskBtn: { backgroundColor: colors.primaryGreen, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  completeTaskBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' as const },
+  emptyTasks: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: spacing.xl },
+  emptyTasksText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.md, opacity: 0.6 },
+  closeFullBtn: { backgroundColor: colors.textPrimary, paddingVertical: spacing.md, borderRadius: 12, alignItems: 'center', marginTop: spacing.md },
+  closeFullBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' as const },
 });
 
 const modalStyles = StyleSheet.create({

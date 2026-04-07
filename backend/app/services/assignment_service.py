@@ -96,6 +96,8 @@ def run_auto_assignment(
             "event_latitude": event.get("latitude"),
             "event_longitude": event.get("longitude"),
             "event_geofence_radius": event.get("geofence_radius"),
+            "event_description": event.get("description", ""),
+            "event_area": event.get("area", "TBD"),
             "status": "pending",
             "is_fallback": False,
         })
@@ -289,5 +291,18 @@ def generate_ai_reasoning(
     else:
         parts.append(f"Workload: High fatigue ({volunteer_fatigue}/5) — rest recommended before taking more assignments.")
 
+    # ─────────────────────────────────────────────
+    #  LOGICAL ONE-LINER (Premium UI Summary)
+    # ─────────────────────────────────────────────
+    top_skill = matched_skills[0].replace('_', ' ') if matched_skills else (required_skills[0].replace('_', ' ') if required_skills else "general expertise")
+    
+    if score >= 0.8:
+        one_liner = f"Outstanding match! Your expertise in {top_skill} and location make you a top-tier candidate."
+    elif score >= 0.6:
+        one_liner = f"Strong match found: your skills are a great fit for this specific mission's needs."
+    else:
+        one_liner = f"A potential match was found based on your skills and proximity to the mission."
+
     label = "Excellent Match" if score >= 0.75 else "Good Match" if score >= 0.55 else "Partial Match"
-    return f"Overall: {label} ({round(score*100)}%)\n\n" + "\n\n".join(parts)
+    
+    return f"🌟 {one_liner}\n\nOverall: {label} ({round(score*100)}%)\n\n" + "\n\n".join(parts)
