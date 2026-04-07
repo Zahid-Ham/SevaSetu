@@ -47,6 +47,17 @@ type ParsedData = {
   key_complaints?: string[];
   sentiment?: string;
   key_quote?: string;
+  photo_url?: string;
+  photo_public_id?: string;
+  audio_url?: string;
+  audio_public_id?: string;
+  media_attachments?: {
+    url: string;
+    type: string;
+    format?: string;
+    public_id?: string;
+    name?: string;
+  }[];
   description?: string;
   auto_category?: string;
   issue_type?: string;
@@ -92,7 +103,13 @@ type Report = {
   photo_public_id?: string;
   audio_url?: string;
   audio_public_id?: string;
-  report_source?: string;
+  media_attachments?: {
+    url: string;
+    type: string;
+    format?: string;
+    public_id?: string;
+    name?: string;
+  }[];
   field_report_data?: string;
 };
 
@@ -1427,63 +1444,130 @@ Higher scores = urgent intervention needed.`
                 </View>
               </View>
 
-              {/* Attachments */}
-              {(displayedReport.photo_url || displayedReport.audio_url) && (
-                <View style={[styles.sectionCard, { borderLeftColor: colors.primarySaffron }]}>
-                  <SectionHeader number="" title="Attachments" icon="paperclip" accent={colors.primarySaffron} />
-                  {displayedReport.photo_url && (
-                    displayedReport.photo_url.toLowerCase().endsWith('.pdf') ? (
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: spacing.md, borderRadius: 12, borderWidth: 1, borderColor: colors.primaryGreen + '40', marginBottom: spacing.md }}
-                        onPress={() => {
-                          let fullUrl = displayedReport.photo_url!;
-                          if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
+              {/* Attachments Section (Enhanced for Multiple Files) */}
+              {(() => {
+                const attachments = displayedReport.media_attachments || [];
+                const hasLegacyPhoto = !!displayedReport.photo_url;
+                const hasLegacyAudio = !!displayedReport.audio_url;
+                
+                if (attachments.length === 0 && !hasLegacyPhoto && !hasLegacyAudio) return null;
+
+                // Combine new attachments with legacy fields for full backwards compatibility
+                const allMedia = [...attachments];
+                if (hasLegacyPhoto && !attachments.find(a => a.url === displayedReport.photo_url)) {
+                  allMedia.push({ url: displayedReport.photo_url!, type: 'image' });
+                }
+                if (hasLegacyAudio && !attachments.find(a => a.url === displayedReport.audio_url)) {
+                  allMedia.push({ url: displayedReport.audio_url!, type: 'audio' });
+                }
+
+                const isDocument = (m: any) => {
+                  const format = (m.format || '').toLowerCase();
+                  const url = (m.url || '').toLowerCase();
+                  const docExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'ppt', 'pptx'];
+                  
+                  // Check explicit format first
+                  if (docExtensions.includes(format)) return true;
+                  
+                  // Check URL for extensions (more robust than endsWith for Cloudinary URLs)
+                  return docExtensions.some(ext => url.includes(`.${ext}`));
+                };
+
+                const images = allMedia.filter(m => m.type === 'image' && !isDocument(m));
+                const others = allMedia.filter(m => m.type !== 'image' || isDocument(m));
+
+                return (
+                  <View style={[styles.sectionCard, { borderLeftColor: colors.primarySaffron }]}>
+                    <SectionHeader number="" title="Attachments" icon="paperclip" accent={colors.primarySaffron} />
+                    
+                    {/* Image Grid */}
+                    {images.length > 0 && (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: others.length > 0 ? spacing.md : 0 }}>
+                        {images.map((img, idx) => {
+                          let fullUrl = img.url;
+                          if (img.public_id && fullUrl.includes('cloudinary.com')) {
+                            fullUrl = `${API_BASE_URL}/chat/serve-file?public_id=${img.public_id}&r_type=image`;
+                          } else if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
                             fullUrl = API_BASE_URL + fullUrl;
                           }
-                          import('react-native').then(rn => rn.Linking.openURL(fullUrl));
-                        }}
-                      >
-                        <Feather name="file-text" size={24} color={colors.primaryGreen} />
-                        <Text style={{ ...typography.bodyText, color: colors.primaryGreen, marginLeft: spacing.sm, fontWeight: '700' }}>View PDF Document</Text>
-                        <Feather name="external-link" size={16} color={colors.primaryGreen} style={{ marginLeft: 'auto' }} />
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={{ marginBottom: spacing.md }}
-                        onPress={() => {
-                          let fullUrl = displayedReport.photo_url!;
-                          if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
-                            fullUrl = API_BASE_URL + fullUrl;
-                          }
-                          setViewerUri(fullUrl);
-                          setViewerVisible(true);
-                        }}
-                      >
-                        {(() => {
-                          let fullUrl = displayedReport.photo_url!;
-                          if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
-                            fullUrl = API_BASE_URL + fullUrl;
-                          }
+                          
                           return (
-                            <Image 
-                              source={{ uri: fullUrl }} 
-                              style={{ width: '100%', height: 220, borderRadius: 16, backgroundColor: colors.textSecondary + '20' }} 
-                              resizeMode="cover" 
-                            />
+                            <TouchableOpacity
+                              key={idx}
+                              activeOpacity={0.9}
+                              onPress={() => { setViewerUri(fullUrl); setViewerVisible(true); }}
+                              style={{ 
+                                width: images.length === 1 ? '100%' : images.length === 2 ? '48%' : '31%', 
+                                aspectRatio: 1, 
+                                borderRadius: 12, 
+                                overflow: 'hidden', 
+                                backgroundColor: colors.background 
+                              }}
+                            >
+                              <Image source={{ uri: fullUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                              <View style={{ position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.4)', padding: 4, borderRadius: 12 }}>
+                                <Feather name="maximize" size={12} color="#FFF" />
+                              </View>
+                            </TouchableOpacity>
                           );
-                        })()}
-                        <View style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.5)', padding: 6, borderRadius: 20 }}>
-                          <Feather name="maximize" size={16} color="#FFF" />
-                        </View>
-                      </TouchableOpacity>
-                    )
-                  )}
-                  {displayedReport.audio_url && (
-                    <AudioPlayer url={displayedReport.audio_url} />
-                  )}
-                </View>
-              )}
+                        })}
+                      </View>
+                    )}
+
+                    {/* Other Media (Videos, Audio, Docs) */}
+                    {others.map((media, idx) => {
+                      let fullUrl = media.url;
+                      if (media.public_id && fullUrl.includes('cloudinary.com')) {
+                        const rType = media.type === 'image' ? 'image' : 'video'; // Cloudinary treats PDF/Audio as video or raw
+                        fullUrl = `${API_BASE_URL}/chat/serve-file?public_id=${media.public_id}&r_type=${rType}`;
+                        if (media.format) fullUrl += `&extension=${media.format}`;
+                      } else if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
+                        fullUrl = API_BASE_URL + fullUrl;
+                      }
+
+                      if (media.type === 'audio' || media.type === 'video' && media.format === 'ogg') {
+                        return <AudioPlayer key={idx} url={fullUrl} />;
+                      }
+
+                      const isDoc = isDocument(media);
+                      const isVideo = media.type === 'video';
+                      
+                      return (
+                        <TouchableOpacity
+                          key={idx}
+                          activeOpacity={0.7}
+                          style={{ 
+                            flexDirection: 'row', 
+                            alignItems: 'center', 
+                            backgroundColor: colors.background, 
+                            padding: spacing.md, 
+                            borderRadius: 12, 
+                            borderWidth: 1, 
+                            borderColor: (isVideo ? '#E53935' : colors.primaryGreen) + '40', 
+                            marginBottom: spacing.sm 
+                          }}
+                          onPress={() => Linking.openURL(fullUrl)}
+                        >
+                          <Feather 
+                            name={isDoc ? "file-text" : isVideo ? "video" : "paperclip"} 
+                            size={24} 
+                            color={isVideo ? '#E53935' : colors.primaryGreen} 
+                          />
+                          <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                            <Text style={{ ...typography.bodyText, color: isVideo ? '#E53935' : colors.primaryGreen, fontWeight: '700' }}>
+                              {media.name || (isDoc ? "Open Document in Browser" : isVideo ? "Play Video Attachment" : "View Attached File")}
+                            </Text>
+                            <Text style={{ ...typography.captionText, fontSize: 10, color: colors.textSecondary }}>
+                              Format: {media.format || 'unknown'}
+                            </Text>
+                          </View>
+                          <Feather name="external-link" size={16} color={isVideo ? '#E53935' : colors.primaryGreen} />
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })()}
 
               {/* System Info */}
               <View style={[styles.sectionCard, { borderLeftColor: colors.textSecondary }]}>

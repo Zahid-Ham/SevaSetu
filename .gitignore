@@ -33,3 +33,11 @@ websitefrontend/build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data and Logs
+*.csv
+*.log
+backend/logs/
+/temp/
+/tmp/
+updated_data.csv

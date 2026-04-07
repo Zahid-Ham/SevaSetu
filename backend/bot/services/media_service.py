@@ -13,14 +13,15 @@ cloudinary.config(
     secure=True
 )
 
-def upload_telegram_photo_to_cloudinary(file_bytes, filename: str):
+def upload_telegram_media_to_cloudinary(file_bytes, filename: str, resource_type: str = "auto"):
     """
-    Uploads a photo from Telegram to Cloudinary.
+    Uploads media (photo, video, audio, or document) from Telegram to Cloudinary.
+    resource_type can be 'image', 'video', 'raw' (for docs/pdfs), or 'auto'.
     """
     try:
         result = cloudinary.uploader.upload(
             file_bytes,
-            resource_type="image",
+            resource_type=resource_type,
             folder="sevasetu/bot_reports",
             use_filename=True,
             unique_filename=True,
@@ -29,7 +30,8 @@ def upload_telegram_photo_to_cloudinary(file_bytes, filename: str):
         )
         return {
             "url": result["secure_url"],
-            "public_id": result["public_id"]
+            "public_id": result["public_id"],
+            "resource_type": result["resource_type"]
         }
     except Exception as e:
         print(f"Cloudinary upload error: {e}")

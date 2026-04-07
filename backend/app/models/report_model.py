@@ -53,6 +53,7 @@ class ReportCreate(BaseModel):
     photo_public_id: Optional[str] = None
     audio_url: Optional[str] = None
     audio_public_id: Optional[str] = None
+    media_attachments: Optional[List[dict]] = []
     
     # Legacy fields (for backward compatibility)
     location: Optional[str] = None

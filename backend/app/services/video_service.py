@@ -1,6 +1,9 @@
 import os
 import tempfile
-from moviepy import VideoFileClip  # Updated for MoviePy 2.x
+try:
+    from moviepy import VideoFileClip  # MoviePy 2.x
+except ImportError:
+    from moviepy.editor import VideoFileClip  # MoviePy 1.x
 
 def extract_audio_from_video(video_path: str) -> str:
     """
