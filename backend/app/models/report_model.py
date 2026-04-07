@@ -47,6 +47,8 @@ class ReportCreate(BaseModel):
     auto_category: Optional[str] = None
     volunteer_id: Optional[str] = None
     report_source: Optional[str] = None
+    assigned_ngo_id: Optional[str] = None
+    assigned_ngo_name: Optional[str] = None
     photo_url: Optional[str] = None
     photo_public_id: Optional[str] = None
     audio_url: Optional[str] = None

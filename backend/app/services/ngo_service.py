@@ -1,6 +1,8 @@
 from app.config.firebase_config import db # type: ignore
 from firebase_admin import firestore # type: ignore
 import uuid
+import math
+import math
 
 def get_all_ngos():
     """
@@ -20,9 +22,9 @@ def get_all_ngos():
     # ALWAYS ensure our stable mock NGOs exist for testing
     print("[NGO Service] Ensuring stable mock NGOs exist in Firestore...")
     mock_ngos = [
-        {"id": "ngo_helping_hands", "name": "Helping Hands Foundation", "city": "Delhi", "supervisor_id": "sup_deepak_1"},
-        {"id": "ngo_sevabharti", "name": "Seva Bharti", "city": "Mumbai", "supervisor_id": "sup_456"},
-        {"id": "ngo_goonj", "name": "Goonj Disaster Relief", "city": "Gurugram", "supervisor_id": "sup_789"},
+        {"id": "ngo_helping_hands", "name": "Helping Hands Foundation", "city": "Delhi", "supervisor_id": "sup_deepak_1", "latitude": 28.6139, "longitude": 77.2090},
+        {"id": "ngo_sevabharti", "name": "Seva Bharti", "city": "Mumbai", "supervisor_id": "sup_456", "latitude": 19.0760, "longitude": 72.8777},
+        {"id": "ngo_goonj", "name": "Goonj Disaster Relief", "city": "Gurugram", "supervisor_id": "sup_789", "latitude": 28.4595, "longitude": 77.0266},
     ]
     for ngo in mock_ngos:
         target_id = ngo.get("id")
@@ -164,3 +166,50 @@ def update_request_status(request_id: str, status: str, supervisor_id: str = Non
             }, merge=True)
             
     return True
+
+def get_nearest_ngo_by_coords(lat: float, lon: float):
+    """
+    Finds the nearest NGO using the Haversine formula.
+    """
+    ngos = get_all_ngos()
+    nearest_ngo = None
+    min_dist = float('inf')
+
+    for ngo in ngos:
+        ngo_lat = ngo.get("latitude")
+        ngo_lon = ngo.get("longitude")
+        
+        if ngo_lat is not None and ngo_lon is not None:
+            # Haversine distance
+            R = 6371  # Earth radius in km
+            dlat = math.radians(ngo_lat - lat)
+            dlon = math.radians(ngo_lon - lon)
+            a = (math.sin(dlat / 2) ** 2 +
+                 math.cos(math.radians(lat)) * math.cos(math.radians(ngo_lat)) *
+                 math.sin(dlon / 2) ** 2)
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            dist = R * c
+
+            if dist < min_dist:
+                min_dist = dist
+                nearest_ngo = ngo
+    
+    return nearest_ngo
+
+def get_nearest_ngo_by_city(city_name: str):
+    """
+    Finds an NGO by matching city name.
+    """
+    ngos = get_all_ngos()
+    city_name_lower = city_name.lower().strip()
+    
+    for ngo in ngos:
+        if ngo.get("city", "").lower().strip() == city_name_lower:
+            return ngo
+    
+    # Fallback to fuzzy match if no exact match
+    for ngo in ngos:
+        if city_name_lower in ngo.get("city", "").lower():
+            return ngo
+            
+    return None
