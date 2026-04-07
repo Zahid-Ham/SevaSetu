@@ -26,6 +26,11 @@ import {
   stopEvent,
   seedPredictions,
   fetchLiveMatches,
+  fetchTasksForAssignment,
+  createTask,
+  submitMissionTask,
+  approveMissionTask,
+  MissionTask,
 } from '../api/eventPredictionService';
 import * as api from '../api/eventPredictionService';
 
@@ -39,6 +44,8 @@ interface EventState {
   volunteerProfile: VolunteerProfile | null;
   allVolunteerProfiles: VolunteerProfile[];
   liveMatches: LiveMatch[]; // Real-time matches against confirmed events
+  tasks: Record<string, MissionTask[]>; // assignment_id -> MissionTask[]
+  reports: any[];
 
   // Loading states
   loadingPredictions: boolean;
@@ -57,6 +64,13 @@ interface EventState {
   loadLiveMatches: (volunteerId: string) => Promise<void>;
   joinMatch: (eventId: string, volunteerId: string, status: 'accepted' | 'declined', match_score?: number, score_breakdown?: any) => Promise<void>;
   syncVolunteerProfile: (user: any) => Promise<void>; // New: Ensures profile exists
+  loadTasks: (assignmentId: string) => Promise<void>;
+  addTask: (assignmentId: string, description: string, proofRequired?: boolean) => Promise<void>;
+  completeTask: (taskId: string, assignmentId: string, proofUrl?: string) => Promise<void>;
+  approveTask: (taskId: string, assignmentId: string) => Promise<void>;
+  rejectTask: (taskId: string, assignmentId: string) => Promise<void>;
+  analyzeTask: (taskId: string, assignmentId: string) => Promise<void>;
+  loadReports: () => Promise<void>;
 
   // Actions — mutations
   confirmEvent: (eventId: string, options?: {
@@ -97,6 +111,8 @@ export const useEventStore = create<EventState>((set, get) => ({
   volunteerProfile: null,
   allVolunteerProfiles: [],
   liveMatches: [],
+  tasks: {},
+  reports: [],
   loadingPredictions: false,
   loadingAssignments: false,
   loadingNotifications: false,
@@ -329,6 +345,103 @@ export const useEventStore = create<EventState>((set, get) => ({
 
   setVolunteerId: (id: string) => {
     set({ volunteerId: id });
+  },
+
+  // ── Mission Tasks ─────────────────────────────────────────────────────────────
+
+  loadTasks: async (assignmentId: string) => {
+    try {
+      const data = await fetchTasksForAssignment(assignmentId);
+      set((state) => ({
+        tasks: { ...state.tasks, [assignmentId]: data }
+      }));
+    } catch (e) {
+      console.error('[useEventStore] loadTasks:', e);
+    }
+  },
+
+  addTask: async (assignmentId: string, description: string, proofRequired = false) => {
+    set({ loadingAction: true });
+    try {
+      await createTask(assignmentId, description, proofRequired);
+      const data = await fetchTasksForAssignment(assignmentId);
+      set((state) => ({
+        tasks: { ...state.tasks, [assignmentId]: data }
+      }));
+    } catch (e) {
+      console.error('[useEventStore] addTask:', e);
+    } finally {
+      set({ loadingAction: false });
+    }
+  },
+
+  completeTask: async (taskId: string, assignmentId: string, proofUrl?: string) => {
+    set({ loadingAction: true });
+    try {
+      await submitMissionTask(taskId, proofUrl);
+      const data = await fetchTasksForAssignment(assignmentId);
+      set((state) => ({
+        tasks: { ...state.tasks, [assignmentId]: data }
+      }));
+    } catch (e) {
+      console.error('[useEventStore] completeTask:', e);
+    } finally {
+      set({ loadingAction: false });
+    }
+  },
+
+  approveTask: async (taskId: string, assignmentId: string) => {
+    set({ loadingAction: true });
+    try {
+      await approveMissionTask(taskId);
+      const data = await fetchTasksForAssignment(assignmentId);
+      set((state) => ({
+        tasks: { ...state.tasks, [assignmentId]: data }
+      }));
+    } catch (e) {
+      console.error('[useEventStore] approveTask:', e);
+    } finally {
+      set({ loadingAction: false });
+    }
+  },
+
+  rejectTask: async (taskId: string, assignmentId: string) => {
+    set({ loadingAction: true });
+    try {
+      await api.rejectMissionTask(taskId);
+      const data = await fetchTasksForAssignment(assignmentId);
+      set((state) => ({
+        tasks: { ...state.tasks, [assignmentId]: data }
+      }));
+    } catch (e) {
+      console.error('[useEventStore] rejectTask:', e);
+    } finally {
+      set({ loadingAction: false });
+    }
+  },
+
+  loadReports: async () => {
+    try {
+      const reports = await api.fetchReports();
+      set({ reports });
+    } catch (e) {
+      console.error('[useEventStore] loadReports:', e);
+    }
+  },
+
+  analyzeTask: async (taskId: string, assignmentId: string) => {
+    set({ loadingAction: true });
+    try {
+      await api.analyzeTaskProof(taskId);
+      const data = await fetchTasksForAssignment(assignmentId);
+      set((state) => ({
+        tasks: { ...state.tasks, [assignmentId]: data }
+      }));
+    } catch (e) {
+      console.error('[useEventStore] analyzeTask:', e);
+    } finally {
+      set({ loadingAction: false });
+    }
   },
 
   resetStore: () => {

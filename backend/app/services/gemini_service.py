@@ -24,14 +24,16 @@ You are an intelligent social infrastructure surveyor. Analyze the provided docu
 
 Extract the following fields. 
 
-CRITICAL INSTRUCTION: Do NOT leave any fields blank or null. If a field is not explicitly mentioned in the document, use your intelligence and the surrounding context to infer, generate, or provide a highly probable and helpful value. For example, if no description is written but keywords are present, write a 2-3 sentence description summarizing the problem.
+CRITICAL INSTRUCTION: Do NOT leave text fields blank or null. If a field is not explicitly mentioned in the document, use your intelligence and the surrounding context to infer, generate, or provide a highly probable and helpful value.
+
+NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'demographic_tally', do NOT guess. Only provide a number if there is direct evidence (e.g., tally marks, "50 people", "10 families"). If no direct evidence is found, return 0 or null.
 
 Metadata:
 - citizen_name (string): Name of the reporter or citizen
 - phone (string): Phone number
 - precise_location (string): Where the problem is
 - gps_coordinates (string): Any mentioned GPS coords
-- demographic_tally (number): Household size or tally marks
+- demographic_tally (number): Household size or tally marks. Return 0 if not found.
 
 Problem Details:
 - executive_summary (string): A concise 1-sentence summary of the entire problem.
@@ -45,7 +47,7 @@ Problem Details:
 Impact & Severity:
 - severity_score (number): Calculate a score from 1 to 10 based on the text context (10 being most severe/dangerous)
 - severity_reason (string): Provide a 2-3 sentence logical justification for why this specific score was given.
-- population_affected (number): Estimate or exact number of people affected
+- population_affected (number): The number of people affected. DO NOT GUESS. Return 0 or null if not explicitly mentioned or clearly indicated.
 - vulnerable_group (string): Identify the most affected group: women, children, elderly, or disabled.
 - vulnerability_flag (string): High, Medium, Low (based on demographics mentioned like children/elderly)
 - secondary_impact (string): Follow-on effects
@@ -60,7 +62,7 @@ Qualitative:
 - key_complaints (array of strings): 3-5 keywords summarizing complaints
 - sentiment (string): Hopeful, Angry, Desperate, Frustrated, Neutral
 - key_quote (string): A direct quote if applicable
-- description (string): Detailed summary of what was written. USE BULLET POINTS for key findings.
+- description (string): Detailed summary of what was VISUALLY shown in the evidence. Describe setting, people, actions, and specific issues in 3 clear bullet points. Avoid mentioning the fact that it is a photo/file. Focus only on the content.
 
 Return ONLY valid JSON in this exact structure, nothing else:
 {
@@ -252,7 +254,9 @@ GPS/Location String: "{location}"
 
 Analyze the photo alongside the transcript to generate a highly structured report matching the exact JSON format below.
 
-CRITICAL INSTRUCTION: Do NOT leave any fields blank or null. Use your intelligence and the surrounding context (visual evidence + transcript) to infer, generate, or provide a highly probable and helpful value.
+CRITICAL INSTRUCTION: Do NOT leave text fields blank or null. Use your intelligence and the surrounding context (visual evidence + transcript) to infer, generate, or provide a highly probable and helpful value.
+
+NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'severity_score', do NOT guess large numbers. Only provide a number if there is direct evidence in the image or audio. If no direct evidence for population exists, return 0 or null.
 
 Return ONLY valid JSON:
 {{
@@ -266,7 +270,7 @@ Return ONLY valid JSON:
   "duration_of_problem": "Estimate if not mentioned",
   "severity_score": null, /* 1 to 10 */
   "severity_reason": "2-3 sentence logical justification for the score",
-  "population_affected": null, /* Estimate */
+  "population_affected": null, /* Only if evidence exists, else 0/null */
   "vulnerable_group": "women/children/elderly/disabled",
   "vulnerability_flag": "High/Medium/Low",
   "expected_resolution_timeline": ["Phase 1: ...", "Phase 2: ..."],
@@ -308,3 +312,187 @@ Return ONLY valid JSON:
         import traceback
         traceback.print_exc()
         return {"description": audio_transcript, "precise_location": location, "error": str(e)}
+
+def generate_final_session_report(session_details: dict, feed_items: list, community_inputs: list, media_parts: list = None, text_notes: list = None) -> dict:
+    """
+    Synthesizes a master NGO report from a multi-item field session in a single multimodal call.
+    Takes session metadata, community texts, and an array of RAW audio/image components.
+    """
+    notes_section = json.dumps(text_notes, indent=2) if text_notes else "[]"
+    
+    prompt = f"""
+You are the Lead Field Auditor for SevaSetu NGO. Your task is to compile a highly professional, factual, and analytical report based directly on the attached raw field evidence (audio recordings, images, and notes).
+
+SESSION METADATA:
+{json.dumps(session_details, indent=2)}
+
+WRITTEN NOTES / COMMUNITY TEXT INPUTS:
+{notes_section}
+{json.dumps(community_inputs, indent=2)}
+
+YOUR TASK:
+I have attached the raw audio files and images from this session. Cross-reference what people say in the audio with what you see in the images, and synthesize ALL evidence into a detailed, professional field report.
+
+STRICT CONTENT AUDIT RULES (FAILURE TO FOLLOW REDUCES REPORT USEFULNESS):
+1. **IGNORE THE PROCESS**: DO NOT say "Audio input was recorded", "Video captured", "A photo was taken", or "Summary is pending". 
+2. **REPORT THE FACTS**: If a voice note says "The well is broken", you MUST write "A broken well was identified as a critical infrastructure failure."
+3. **VISUAL DETAIL**: For images/videos, use the 'ai_extraction' field to report on what is VISUALLY happening (e.g. "Volunteers distributing 50 food packets to families").
+4. **INTEGRATE COMMUNITY VOICE**: Read the 'community_voice' analysis. If a female aged 30 expressed concern about water, it MUST be listed as a specific finding.
+5. **BE SPECIFIC**: Use numbers, locations, and direct observations from the evidence analysis.
+
+STRICT JSON OUTPUT FORMAT:
+{{
+  "executive_summary": [
+    "Bullet point 1: Specific high-level summary of the EVENT activity (e.g., 'Completed a health drive in Ward 4')",
+    "Bullet point 2: Key evidence-based observation (e.g., 'Identified acute water shortage affecting 20 households')",
+    "Bullet point 3: Community sentiment and primary request identified",
+    "Bullet point 4: Strategic assessment of the mission's impact"
+  ],
+  "report_type": "{session_details.get('type')}",
+  "location_summary": "{session_details.get('location')}",
+  
+  "evidence_breakdown": [
+    {{
+      "evidence_type": "Audio / Video / Image / PDF / Note / Community",
+      "evidence_label": "Short label (e.g., 'Primary School Condition')",
+      "three_line_extraction": [
+        "Line 1: Specific content found in the evidence (e.g. 'Classrooms show signs of roof leakage')",
+        "Line 2: Data point or detail (e.g. 'Affects approx 30 students during rain')",
+        "Line 3: Recommendation (e.g. 'Urgent roof repairs needed before monsoon')"
+      ],
+      "url": "URL if available"
+    }}
+  ],
+  
+  "key_findings": [
+    {{
+      "category": "e.g. Infrastructure / Health",
+      "observation": "detailed observation based on items in feed"
+    }}
+  ],
+  
+  "needs_assessment": [
+    {{
+      "need": "The specific requirement identified",
+      "severity": "Low/Moderate/High/Critical",
+      "rationale": "Directly linked to the evidence collected"
+    }}
+  ],
+  
+  "community_voice": [
+    {{
+      "member": "Member 1 (age, gender)",
+      "summary": "What they specifically expressed or requested",
+      "notable_quote": "A powerful quote from their feedback"
+    }}
+  ],
+  
+  "evidence_conclusion": [
+    "Bullet 1: Direct summary of what the audio evidence (transcripts) specifically revealed about the situation",
+    "Bullet 2: Specific description of what visual evidence showed (not just 'was captured')",
+    "Bullet 3: Synthesis of community requests",
+    "Bullet 4: Overall pattern identified across all media types (e.g. 'Visual and audio evidence both confirm systematic neglect of the public well')",
+    "Bullet 5: Final professional assessment for the NGO headquarters"
+  ],
+  
+  "recommended_follow_up": [
+    "Specific actionable step 1",
+    "Specific actionable step 2"
+  ],
+  
+  "metadata": {{
+    "duration": "",
+    "worker_id": "{session_details.get('workerId')}",
+    "timestamp": "{session_details.get('dateTime')}",
+    "total_evidence_pieces": {len(feed_items)},
+    "community_members_surveyed": {len(community_inputs)}
+  }}
+}}
+
+Return ONLY valid JSON.
+"""
+    try:
+        print("\n--- [Gemini Final Aggregator] Compiling entire session report (SINGLE MULTIMODAL CALL) ---")
+        parts_count = len(media_parts) if media_parts else 0
+        print(f"[Gemini Final Aggregator] Sending prompt + {parts_count} raw media components to Gemini 2.5 Flash")
+        
+        contents = [prompt]
+        if media_parts:
+            contents.extend(media_parts)
+
+        response = model.generate_content(contents)
+        text_content = response.text.strip()
+        
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+
+        return json.loads(text_content.strip())
+    except Exception as e:
+        print(f"!!! [Gemini Final Aggregator ERROR] !!!: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": "Final synthesis failed.", "details": str(e)}
+
+def verify_task_proof(image_url: str, task_description: str) -> dict:
+    """
+    Gemini Guard: Verifies if the uploaded image proof matches the task description.
+    Returns structured JSON with confidence and analysis.
+    """
+    prompt = f"""
+    You are 'Gemini Guard', an AI verification agent for SevaSetu NGO.
+    A volunteer has submitted a photo as proof for the following task:
+    TASK: "{task_description}"
+    
+    YOUR TASK:
+    1. Analyze the image to see if it realistically shows the task being completed or the result of the task.
+    2. Provide a 'confidence_score' from 0-100.
+    3. Identify if the photo is 'irrelevant' (e.g., a selfie, a random object, or a dark/blurry image that shows nothing).
+    4. Provide a 'summary' explaining what you see and how it relates to the task.
+    
+    Return ONLY valid JSON in this structure:
+    {{
+      "is_verified": true/false,
+      "confidence_score": 0-100,
+      "is_irrelevant": true/false,
+      "summary": "Short 1-2 sentence explanation of findings."
+    }}
+    """
+    
+    import requests # type: ignore
+    try:
+        print(f"\n--- [Gemini Guard] Verifying proof for: {task_description} ---")
+        response = requests.get(image_url)
+        if response.status_code != 200:
+            return {"error": "Could not download image for verification."}
+        
+        image_bytes = response.content
+        file_part = {
+            "mime_type": "image/jpeg",
+            "data": base64.b64encode(image_bytes).decode("utf-8")
+        }
+
+        gemini_response = model.generate_content([prompt, file_part])
+        text_content = gemini_response.text.strip()
+        
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+
+        data = json.loads(text_content.strip())
+        print(f"[Gemini Guard] Verification Result: Confidence {data.get('confidence_score')}%")
+        return data
+    except Exception as e:
+        print(f"!!! [Gemini Guard ERROR] !!!: {e}")
+        return {
+            "is_verified": False,
+            "confidence_score": 0,
+            "summary": "AI verification failed due to a processing error."
+        }
+

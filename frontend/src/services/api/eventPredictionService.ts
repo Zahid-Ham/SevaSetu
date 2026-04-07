@@ -77,6 +77,7 @@ export interface VolunteerAssignment {
   event_latitude?: number;  // Added
   event_longitude?: number; // Added
   event_geofence_radius?: number; // Added
+  event_area?: string; // Added: Supervisor specified location
   status: 'pending' | 'accepted' | 'declined';
   is_fallback: boolean;
   created_at?: string;
@@ -128,6 +129,7 @@ export interface LiveMatch {
   latitude?: number;  // Added
   longitude?: number; // Added
   geofence_radius?: number; // Added
+  description?: string; // Added: Supervisor description
   ai_reasoning: string;
   is_live_match: true;
 }
@@ -139,6 +141,24 @@ export interface AiMessage {
   user_id: string;
   timestamp: string;
   context_used: boolean;
+}
+
+export interface MissionTask {
+  id: string;
+  assignment_id: string;
+  description: string;
+  status: 'pending' | 'under_review' | 'completed' | 'rejected';
+  proof_required: boolean;
+  proof_url?: string;
+  created_at: string;
+  completed_at?: string;
+  ai_verification?: {
+    is_verified: boolean;
+    confidence_score: number;
+    is_irrelevant: boolean;
+    summary: string;
+  };
+  ai_verified_at?: string;
 }
 
 export interface ChatMessage {
@@ -291,6 +311,46 @@ export async function createManualEvent(payload: {
   }, {});
 }
 
+// ── Mission Tasks ─────────────────────────────────────────────────────────────
+
+export async function fetchTasksForAssignment(assignmentId: string): Promise<MissionTask[]> {
+  const data = await apiFetch<any>(`/tasks/${assignmentId}`, undefined, { tasks: [] });
+  return Array.isArray(data.tasks) ? data.tasks : [];
+}
+
+export async function createTask(assignmentId: string, description: string, proofRequired = false): Promise<string> {
+  const data = await apiFetch<any>(`/tasks/${assignmentId}`, {
+    method: 'POST',
+    body: JSON.stringify({ description, proof_required: proofRequired }),
+  });
+  return data.task_id;
+}
+
+export async function submitMissionTask(taskId: string, proofUrl?: string): Promise<void> {
+  await apiFetch(`/tasks/${taskId}/complete`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'under_review', proof_url: proofUrl }),
+  });
+}
+
+export async function approveMissionTask(taskId: string): Promise<void> {
+  await apiFetch(`/tasks/${taskId}/approve`, {
+    method: 'PATCH',
+  });
+}
+
+export async function rejectMissionTask(taskId: string): Promise<void> {
+  await apiFetch(`/tasks/${taskId}/reject`, {
+    method: 'PATCH',
+  });
+}
+
+export async function analyzeTaskProof(taskId: string): Promise<any> {
+  return await apiFetch<any>(`/tasks/${taskId}/analyze`, {
+    method: 'POST',
+  });
+}
+
 // ── Assignments ───────────────────────────────────────────────────────────────
 
 export async function fetchAssignmentsForVolunteer(volunteerId: string): Promise<VolunteerAssignment[]> {
@@ -355,6 +415,16 @@ export async function fetchLiveMatches(volunteerId: string): Promise<LiveMatch[]
     return Array.isArray(data.matches) ? data.matches : [];
   } catch (e) {
     console.warn('[eventPredictionService] fetchLiveMatches failed:', e);
+    return [];
+  }
+}
+
+export async function fetchReports(): Promise<any[]> {
+  try {
+    const data = await apiFetch<any>('/reports', undefined);
+    return data.success ? data.reports : [];
+  } catch (e) {
+    console.error('[eventPredictionService] fetchReports failed:', e);
     return [];
   }
 }

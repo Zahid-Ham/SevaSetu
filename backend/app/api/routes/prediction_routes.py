@@ -643,6 +643,11 @@ async def get_live_matches_for_volunteer(volunteer_id: str):
                 "score_breakdown": breakdown,
                 "ai_reasoning": ai_reasoning,
                 "is_live_match": True,
+                "latitude": event.get("latitude"),
+                "longitude": event.get("longitude"),
+                "geofence_radius": event.get("geofence_radius", 150.0),
+                "description": event.get("description", ""),
+                "area": event.get("area", "TBD"),
             })
 
         matches.sort(key=lambda x: x["match_score"], reverse=True)

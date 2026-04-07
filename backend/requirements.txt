@@ -10,3 +10,5 @@ cloudinary
 reportlab
 numpy
 pymupdf
+websockets
+moviepy>=2.0.0

@@ -12,6 +12,7 @@ import { AssignmentScreen } from '../screens/volunteer/AssignmentScreen';
 import { AvailabilityScreen } from '../screens/volunteer/AvailabilityScreen';
 import { ChatScreen } from '../screens/shared/ChatScreen';
 import { ChatListScreen } from '../screens/shared/ChatListScreen';
+import { SyncDashboardScreen } from '../screens/volunteer/SyncDashboardScreen';
 import { AnimatedTabBar } from './AnimatedTabBar';
 
 const Tab = createBottomTabNavigator();
@@ -22,6 +23,7 @@ const HomeStack = () => (
     <Stack.Screen name="VolunteerHome" component={VolunteerHomeScreen} />
     <Stack.Screen name="Assignments" component={AssignmentScreen} />
     <Stack.Screen name="Availability" component={AvailabilityScreen} />
+    <Stack.Screen name="SyncDashboard" component={SyncDashboardScreen} />
   </Stack.Navigator>
 );
 

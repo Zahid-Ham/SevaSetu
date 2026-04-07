@@ -7,15 +7,16 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl, Alert, Modal, TextInput, Switch, Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
-import { VolunteerAssignment, MOCK_PREDICTIONS } from '../../services/api/eventPredictionService';
+import { VolunteerAssignment, MOCK_PREDICTIONS, MissionTask } from '../../services/api/eventPredictionService';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { AppHeader } from '../../components';
+import { ProofPeekModal } from '../../components/common/ProofPeekModal';
 
 const STATUS_CONFIG = {
   pending:  { label: 'Pending',  color: '#F59E0B', bg: '#FEF3C7', icon: 'clock' as const },
@@ -27,6 +28,9 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
   const initialEventId = route.params?.eventId || null;
   const [selectedEventId, setSelectedEventId] = useState<string | null>(initialEventId);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeAssignment, setActiveAssignment] = useState<VolunteerAssignment | null>(null);
+  const [selectedTaskForProof, setSelectedTaskForProof] = useState<MissionTask | null>(null);
+  const [isProofModalVisible, setIsProofModalVisible] = useState(false);
 
   const { 
     predictions, 
@@ -75,9 +79,9 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
     || (confirmedEvents.length === 0 ? MOCK_PREDICTIONS.find((p) => p.id === selectedEventId) : undefined);
 
   // Build assignment stats
-  const pendingCount  = eventAssignments.filter((a) => a.status === 'pending').length;
-  const acceptedCount = eventAssignments.filter((a) => a.status === 'accepted').length;
-  const declinedCount = eventAssignments.filter((a) => a.status === 'declined').length;
+  const pendingCount  = eventAssignments.filter((a) => a.status?.toLowerCase() === 'pending').length;
+  const acceptedCount = eventAssignments.filter((a) => a.status?.toLowerCase() === 'accepted').length;
+  const declinedCount = eventAssignments.filter((a) => a.status?.toLowerCase() === 'declined').length;
 
   // Group by status
   const grouped: Record<string, VolunteerAssignment[]> = {
@@ -89,10 +93,11 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
   // Use real data or empty list (no more mock override for better transparency)
   const displayAssignments = eventAssignments;
 
+  // Group by status
   const displayGrouped: Record<string, VolunteerAssignment[]> = {
-    accepted: displayAssignments.filter((a) => a.status === 'accepted'),
-    pending:  displayAssignments.filter((a) => a.status === 'pending'),
-    declined: displayAssignments.filter((a) => a.status === 'declined'),
+    accepted: displayAssignments.filter((a) => a.status?.toLowerCase() === 'accepted'),
+    pending:  displayAssignments.filter((a) => a.status?.toLowerCase() === 'pending'),
+    declined: displayAssignments.filter((a) => a.status?.toLowerCase() === 'declined'),
   };
 
   return (
@@ -192,6 +197,12 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
                     assignment={a} 
                     allProfiles={allVolunteerProfiles} 
                     navigation={navigation}
+                    onOpenTasks={() => {
+                      try {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } catch (e) {}
+                      setActiveAssignment(a);
+                    }}
                   />
                 ))}
               </View>
@@ -201,7 +212,190 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Mission Tasks Modal */}
+      <MissionTasksModal
+        visible={!!activeAssignment}
+        assignment={activeAssignment!}
+        onClose={() => setActiveAssignment(null)}
+        onViewProof={(task) => {
+          setSelectedTaskForProof(task);
+          setIsProofModalVisible(true);
+        }}
+      />
+
+      <ProofPeekModal
+        isVisible={isProofModalVisible}
+        task={selectedTaskForProof}
+        assignmentId={activeAssignment?.id || ''}
+        onClose={() => setIsProofModalVisible(false)}
+      />
     </View>
+  );
+};
+
+// ── Mission Tasks Modal ────────────────────────────────────────────────────────
+
+const MissionTasksModal = ({ visible, assignment, onClose, onViewProof }: {
+  visible: boolean;
+  assignment: VolunteerAssignment;
+  onClose: () => void;
+  onViewProof: (task: MissionTask) => void;
+}) => {
+  const { tasks, loadTasks, addTask, approveTask, loadingAction } = useEventStore();
+  const [description, setDescription] = useState('');
+  const [proofRequired, setProofRequired] = useState(false);
+
+  useEffect(() => {
+    if (visible && assignment) {
+      loadTasks(assignment.id);
+    }
+  }, [visible, assignment]);
+
+  const assignmentTasks = assignment ? tasks[assignment.id] || [] : [];
+
+  const handleAddTask = async () => {
+    if (!description.trim()) return;
+    await addTask(assignment.id, description, proofRequired);
+    setDescription('');
+    setProofRequired(false);
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>Mission Tasks</Text>
+              <Text style={styles.modalSub}>{assignment.volunteer_name}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
+              <Feather name="x" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+            {/* Add Task Form */}
+            <View style={styles.addTaskForm}>
+              <TextInput
+                style={styles.taskInput}
+                placeholder="Describe a specific task..."
+                value={description}
+                onChangeText={setDescription}
+                multiline
+              />
+              <View style={styles.taskOptions}>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>Proof Required</Text>
+                  <Switch
+                    value={proofRequired}
+                    onValueChange={setProofRequired}
+                    trackColor={{ false: '#D1D5DB', true: colors.primaryGreen }}
+                  />
+                </View>
+                <TouchableOpacity 
+                  style={[styles.addTaskBtn, !description.trim() && { opacity: 0.5 }]} 
+                  onPress={handleAddTask}
+                  disabled={!description.trim() || loadingAction}
+                >
+                  <Text style={styles.addTaskBtnText}>Add Task</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Tasks List */}
+            <View style={styles.tasksList}>
+              <Text style={styles.listLabel}>CURRENT TASKS ({assignmentTasks.length})</Text>
+              {assignmentTasks.length === 0 ? (
+                <View style={styles.emptyTasks}>
+                  <Feather name="clipboard" size={40} color={colors.textSecondary} style={{ opacity: 0.2 }} />
+                  <Text style={styles.emptyTasksText}>No tasks assigned yet.</Text>
+                </View>
+              ) : (
+                assignmentTasks.map((t: MissionTask) => (
+                  <View key={t.id} style={styles.taskItem}>
+                    <View style={styles.taskStatusIndicator}>
+                      <Feather 
+                        name={t.status === 'completed' ? 'check-circle' : t.status === 'under_review' ? 'clock' : t.status === 'rejected' ? 'alert-circle' : 'circle'} 
+                        size={20} 
+                        color={t.status === 'completed' ? colors.success : t.status === 'under_review' ? colors.warning : t.status === 'rejected' ? colors.error : colors.textSecondary} 
+                      />
+                    </View>
+                    <View style={styles.taskMain}>
+                      <Text style={[styles.taskDesc, (t.status === 'completed' || t.status === 'under_review') && styles.taskDescDone]}>
+                        {t.description}
+                      </Text>
+                      
+                      <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                        {t.status === 'under_review' && (
+                          <View style={[styles.proofBadge, { backgroundColor: colors.warning + '10' }]}>
+                            <Text style={[styles.proofBadgeText, { color: colors.warning }]}>⏳ UNDER REVIEW</Text>
+                          </View>
+                        )}
+                        {t.status === 'rejected' && (
+                          <View style={[styles.proofBadge, { backgroundColor: colors.error + '10' }]}>
+                            <Text style={[styles.proofBadgeText, { color: colors.error }]}>❌ REJECTED</Text>
+                          </View>
+                        )}
+                        {t.ai_verification && (
+                          <View style={[styles.proofBadge, { backgroundColor: t.ai_verification.confidence_score > 80 ? '#4ADE8020' : '#FBBF2420' }]}>
+                            <Text style={[styles.proofBadgeText, { color: t.ai_verification.confidence_score > 80 ? '#4ADE80' : '#FBBF24' }]}>
+                              🤖 AI: {t.ai_verification.confidence_score}%
+                            </Text>
+                          </View>
+                        )}
+                        {t.proof_required && t.status === 'pending' && (
+                          <View style={styles.proofBadge}>
+                            <Text style={styles.proofBadgeText}>📎 Proof Req.</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    
+                    {t.status === 'under_review' ? (
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {t.proof_url && (
+                          <TouchableOpacity 
+                            style={[styles.chatRowBtn, { backgroundColor: colors.primaryGreen + '10', paddingHorizontal: 12 }]} 
+                            onPress={() => onViewProof(t)}
+                          >
+                            <Feather name="eye" size={14} color={colors.primaryGreen} />
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity 
+                          style={[styles.chatRowBtn, { backgroundColor: colors.success + '10', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12 }]} 
+                          onPress={() => approveTask(t.id, assignment.id)}
+                          disabled={loadingAction}
+                        >
+                          <Feather name="check" size={14} color={colors.success} />
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.success }}>Approve</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      (t.status === 'completed' && t.proof_url) && (
+                        <TouchableOpacity 
+                          style={styles.taskProof} 
+                          onPress={() => onViewProof(t)}
+                        >
+                          <Feather name="image" size={16} color={colors.primaryGreen} />
+                          <Text style={{ fontSize: 10, color: colors.primaryGreen, marginLeft: 4 }}>View Proof</Text>
+                        </TouchableOpacity>
+                      )
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          </ScrollView>
+
+          <View style={{ height: 20 }} />
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -219,11 +413,13 @@ const StatChip = ({ label, value, color }: { label: string; value: number; color
 const AssignmentRow = ({ 
   assignment, 
   allProfiles,
-  navigation
+  navigation,
+  onOpenTasks
 }: { 
   assignment: VolunteerAssignment; 
   allProfiles: any[];
   navigation: any;
+  onOpenTasks?: () => void;
 }) => {
   const cfg = STATUS_CONFIG[assignment.status] ?? STATUS_CONFIG.pending;
   const matchPct = Math.round(assignment.match_score * 100);
@@ -233,7 +429,17 @@ const AssignmentRow = ({
   const skillsToDisplay = liveProfile ? liveProfile.skills : assignment.volunteer_skills;
 
   return (
-    <View style={[globalStyles.card, styles.assignmentRow]}>
+    <TouchableOpacity 
+      style={[globalStyles.card, styles.assignmentRow]}
+      activeOpacity={0.7}
+      onPress={() => {
+        if (assignment.status?.toLowerCase() !== 'accepted') {
+          Alert.alert("Assignment Not Accepted", "You can only assign tasks to volunteers who have accepted the event.");
+          return;
+        }
+        if (onOpenTasks) onOpenTasks();
+      }}
+    >
       <View style={styles.volunteerInfo}>
         {/* Avatar placeholder */}
         <LinearGradient colors={['#1A237E', '#3949AB']} style={styles.avatar}>
@@ -297,7 +503,7 @@ const AssignmentRow = ({
           </View>
         )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
@@ -364,4 +570,30 @@ const styles = StyleSheet.create({
   matchPct: { fontSize: 11, fontWeight: '600' as const },
   fallbackPill: { backgroundColor: colors.primarySaffron + '20', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
   fallbackPillText: { fontSize: 9, color: colors.primarySaffron, fontWeight: '600' as const },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '80%', padding: spacing.md },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg, paddingHorizontal: spacing.sm },
+  modalTitle: { fontSize: 20, fontWeight: '800' as const, color: colors.textPrimary },
+  modalSub: { fontSize: 14, color: colors.textSecondary },
+  modalCloseBtn: { padding: 4 },
+  modalBody: { flex: 1 },
+  addTaskForm: { backgroundColor: colors.background, borderRadius: 16, padding: spacing.md, marginBottom: spacing.lg, borderWidth: 1, borderColor: '#EAEEF2' },
+  taskInput: { fontSize: 15, color: colors.textPrimary, minHeight: 80, textAlignVertical: 'top', padding: spacing.sm, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  taskOptions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  switchLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' as const },
+  addTaskBtn: { backgroundColor: colors.primaryGreen, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: 10 },
+  addTaskBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
+  tasksList: { paddingHorizontal: spacing.sm },
+  listLabel: { fontSize: 11, fontWeight: '700' as const, color: colors.textSecondary, letterSpacing: 1, marginBottom: spacing.md },
+  emptyTasks: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
+  emptyTasksText: { fontSize: 14, color: colors.textSecondary, marginTop: spacing.md, opacity: 0.5 },
+  taskItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  taskStatusIndicator: { width: 24, alignItems: 'center' },
+  taskMain: { flex: 1 },
+  taskDesc: { fontSize: 15, color: colors.textPrimary, fontWeight: '500' as const },
+  taskDescDone: { textDecorationLine: 'line-through', color: colors.textSecondary, opacity: 0.7 },
+  proofBadge: { backgroundColor: colors.accentBlue + '10', alignSelf: 'flex-start', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4 },
+  proofBadgeText: { fontSize: 10, color: colors.accentBlue, fontWeight: '700' as const },
+  taskProof: { width: 32, height: 32, backgroundColor: colors.primaryGreen + '10', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 });
