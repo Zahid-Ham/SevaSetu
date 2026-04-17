@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SevaSetu | Bilingual Voice Console</title>
+    
+    <!-- Robust Script Loading Logic -->
+    <script id="twilio-sdk"></script>
+    <script>
+        const SDK_URLS = [
+            "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.11.0/dist/twilio.min.js",
+            "https://sdk.twilio.com/js/voice/releases/2.11.0/twilio.min.js",
+            "https://unpkg.com/@twilio/voice-sdk@2.11.0/dist/twilio.min.js"
+        ];
+
+        let currentSourceIndex = 0;
+
+        function loadNextSDK() {
+            if (currentSourceIndex >= SDK_URLS.length) {
+                console.error("All SDK sources failed.");
+                document.getElementById('status-text').innerText = '❌ Error: SDK Blocked';
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = SDK_URLS[currentSourceIndex];
+            script.onload = () => {
+                console.log("Twilio SDK Loaded ✅");
+                enableUI();
+            };
+            script.onerror = () => {
+                currentSourceIndex++;
+                loadNextSDK();
+            };
+            document.head.appendChild(script);
+        }
+
+        function enableUI() {
+            const btn = document.getElementById('connect-btn');
+            btn.disabled = false;
+            btn.innerText = '🔌 Connect System';
+            document.getElementById('status-text').innerText = 'Ready to initialize';
+        }
+
+        window.onload = loadNextSDK;
+    </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --success: #10B981;
+            --danger: #EF4444;
+            --bg: #0F172A;
+            --card: #1E293B;
+            --text: #F1F5F9;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #818CF8, #C084FC);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .call-card {
+            background: var(--card);
+            padding: 2.5rem 2rem;
+            border-radius: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background: #475569;
+            border-radius: 50%;
+            margin: 0 auto 1.5rem;
+        }
+
+        .status-dot.active { background: var(--success); box-shadow: 0 0 15px var(--success); }
+        .status-dot.calling { background: var(--primary); animation: blink 1s infinite; }
+
+        .timer { font-size: 2.5rem; font-weight: 600; margin-bottom: 2rem; }
+
+        .controls { display: flex; flex-direction: column; gap: 1rem; }
+
+        button {
+            border: none; border-radius: 1rem; padding: 1.25rem;
+            font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+
+        #connect-btn { background: #334155; color: white; }
+        #call-btn { background: var(--primary); color: white; display: none; }
+        #hangup-btn { background: var(--danger); color: white; display: none; }
+
+        .keypad {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
+            margin-top: 1.5rem; display: none;
+        }
+
+        .key {
+            background: rgba(255, 255, 255, 0.05); padding: 1.25rem 0;
+            border-radius: 0.75rem; cursor: pointer; font-size: 1.2rem;
+        }
+
+        .key:hover { background: rgba(255, 255, 255, 0.1); }
+
+        #status-text { color: #94A3B8; margin-top: 1rem; font-size: 0.95rem; }
+
+        .report-summary {
+            margin-top: 1.5rem; background: rgba(0,0,0,0.2);
+            border-radius: 1rem; padding: 1.5rem; border: 1px dashed rgba(255,255,255,0.1);
+            text-align: left; display: none;
+        }
+
+        .report-summary h3 { font-size: 0.9rem; color: #818CF8; margin: 0 0 0.5rem; text-transform: uppercase; }
+        .report-summary pre { white-space: pre-wrap; font-size: 0.9rem; color: #E2E8F0; margin: 0; font-family: inherit; font-style: italic; }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SevaSetu Pro</h1>
+            <p>Bilingual Indian Voice Console</p>
+        </div>
+
+        <div class="call-card">
+            <div id="status-dot" class="status-dot"></div>
+            <div id="timer" class="timer">00:00</div>
+            
+            <div class="controls">
+                <button id="connect-btn" disabled>⌛ Waiting for Scripts...</button>
+                <button id="call-btn">🚀 Start Pro Demo Call</button>
+                <button id="hangup-btn">🛑 End Call</button>
+            </div>
+
+            <p id="status-text">Ready to initialize</p>
+
+            <div id="keypad" class="keypad">
+                <div class="key" onclick="sendDigit('1')">1</div>
+                <div class="key" onclick="sendDigit('2')">2</div>
+                <div class="key" onclick="sendDigit('3')">3</div>
+                <div class="key" onclick="sendDigit('4')">4</div>
+                <div class="key" onclick="sendDigit('5')">5</div>
+                <div class="key" onclick="sendDigit('6')">6</div>
+                <div class="key" onclick="sendDigit('7')">7</div>
+                <div class="key" onclick="sendDigit('8')">8</div>
+                <div class="key" onclick="sendDigit('9')">9</div>
+                <div class="key" onclick="sendDigit('*')">*</div>
+                <div class="key" onclick="sendDigit('0')">0</div>
+                <div class="key" onclick="sendDigit('#')">#</div>
+            </div>
+
+            <div id="summary-box" class="report-summary">
+                <h3>Live Submission Data</h3>
+                <pre id="summary-content">No data yet...</pre>
+                <div id="report-badge" style="margin-top:1rem; padding: 5px 10px; background: #10B981; border-radius: 5px; font-size: 0.8rem; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let device, call, timerInterval, seconds = 0, currentSid = null, pollingInterval = null;
+
+        const connectBtn = document.getElementById('connect-btn');
+        const callBtn = document.getElementById('call-btn');
+        const hangupBtn = document.getElementById('hangup-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const timerText = document.getElementById('timer');
+        const keypad = document.getElementById('keypad');
+        const summaryBox = document.getElementById('summary-box');
+        const summaryContent = document.getElementById('summary-content');
+
+        connectBtn.onclick = async () => {
+            connectBtn.disabled = true;
+            statusText.innerText = 'Connecting...';
+            try {
+                const res = await fetch('/voice/token');
+                const { token } = await res.json();
+                
+                const Device = (window.Twilio && window.Twilio.Voice && window.Twilio.Voice.Device) || (window.Twilio && window.Twilio.Device);
+                device = new Device(token, { logLevel: 1 });
+
+                device.on('registered', () => {
+                    statusText.innerText = 'System Ready ✅';
+                    statusDot.className = 'status-dot active';
+                    connectBtn.style.display = 'none';
+                    callBtn.style.display = 'block';
+                });
+
+                await device.register();
+            } catch (err) {
+                statusText.innerText = 'Failed: ' + err.message;
+                connectBtn.disabled = false;
+            }
+        };
+
+        callBtn.onclick = async () => {
+            statusDot.className = 'status-dot calling';
+            statusText.innerText = 'Dialing...';
+            summaryBox.style.display = 'none';
+
+            try {
+                call = await device.connect();
+                
+                call.on('accept', () => {
+                    // FIX: Capturing SID properly in v2 SDK
+                    currentSid = call.parameters.CallSid || call.sid;
+                    console.log("Call Started. SID:", currentSid);
+
+                    statusDot.className = 'status-dot active';
+                    statusText.innerText = '📞 Call in progress...';
+                    callBtn.style.display = 'none';
+                    hangupBtn.style.display = 'block';
+                    keypad.style.display = 'grid';
+                    startTimer();
+                    
+                    // Start Live Updates
+                    startPolling();
+                });
+
+                call.on('disconnect', () => stopCall());
+            } catch (err) {
+                statusText.innerText = 'Call Error';
+                stopCall();
+            }
+        };
+
+        hangupBtn.onclick = () => { if (call) call.disconnect(); stopCall(); };
+
+        function startTimer() {
+            seconds = 0;
+            timerInterval = setInterval(() => {
+                seconds++;
+                const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+                const s = (seconds % 60).toString().padStart(2, '0');
+                timerText.innerText = `${m}:${s}`;
+            }, 1000);
+        }
+
+        function stopTimer() { clearInterval(timerInterval); }
+
+        function stopCall() {
+            statusDot.className = 'status-dot active';
+            statusText.innerText = 'Call Ended';
+            callBtn.style.display = 'block';
+            hangupBtn.style.display = 'none';
+            keypad.style.display = 'none';
+            stopTimer();
+            // Polling will finish final processing
+        }
+
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            summaryBox.style.display = 'block';
+            
+            pollingInterval = setInterval(async () => {
+                if (!currentSid) return;
+                
+                try {
+                    const res = await fetch(`/voice/status/${currentSid}`);
+                    const data = await res.json();
+                    
+                    if (data.transcription) {
+                        summaryContent.innerText = data.transcription;
+                    }
+                    
+                    if (data.status === 'COMPLETED') {
+                        clearInterval(pollingInterval);
+                        statusText.innerText = 'Report Submitted ✅';
+                        if (data.report_id) {
+                            const badge = document.getElementById('report-badge');
+                            badge.innerText = `Report ID: ${data.report_id}`;
+                            badge.style.display = 'block';
+                        }
+                    }
+                } catch (e) { console.error("Poll error", e); }
+            }, 2000);
+        }
+
+        function sendDigit(digit) { if (call) call.sendDigits(digit); }
+    </script>
+</body>
+</html>
