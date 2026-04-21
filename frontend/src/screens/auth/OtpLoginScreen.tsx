@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, TouchableOpacity, Animated, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { PrimaryButton, MadeInIndiaBadge, GradientBackground } from '../../components';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { FirebaseRecaptchaVerifierModal } from '../../components/FirebaseRecaptcha';
+import { auth } from '../../config/firebaseConfig';
 
 export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => void }) => {
   const navigation = useNavigation<any>();
-  const setRole = useAuthStore(state => state.setRole);
+  const { sendOtp, verifyOtp } = useAuthStore();
   const route = useRoute<any>();
   const role = route.params?.role || 'CITIZEN';
   
@@ -16,8 +18,11 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
   const [otp, setOtp] = useState('');
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [timer, setTimer] = useState(30);
+  const [loading, setLoading] = useState(false);
+  const [confirmation, setConfirmation] = useState<any>(null);
 
   const otpAnimation = useRef(new Animated.Value(0)).current;
+  const recaptchaVerifier = useRef<any>(null);
 
   useEffect(() => {
     let interval: any;
@@ -29,28 +34,54 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
     return () => clearInterval(interval);
   }, [isOtpSent, timer]);
 
-  const handleSendOtp = () => {
+  const handleSendOtp = async () => {
     if (phoneNumber.length === 10) {
-      setIsOtpSent(true);
-      Animated.timing(otpAnimation, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
+      setLoading(true);
+      try {
+        const result = await sendOtp(phoneNumber, recaptchaVerifier.current);
+        if (result.success) {
+          setConfirmation(result.confirmation);
+          setIsOtpSent(true);
+          Animated.timing(otpAnimation, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }).start();
+        } else {
+          Alert.alert('Error', result.message || 'Failed to send OTP.');
+        }
+      } catch (err: any) {
+        console.error('[Phone Auth] Error:', err);
+        Alert.alert('Error', err.message || 'Failed to send OTP. Please check your phone number and project settings.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (otp.length === 6) {
-      setRole(role);
-      if (onSelectRole) {
-        onSelectRole(role);
+      setLoading(true);
+      try {
+        const result = await verifyOtp(confirmation, otp, role);
+        if (!result.success) {
+          Alert.alert('Verification Failed', result.message);
+        }
+      } catch (err) {
+        Alert.alert('Error', 'Invalid OTP or verification failed.');
+      } finally {
+        setLoading(false);
       }
     }
   };
 
   return (
     <GradientBackground style={styles.container}>
+      <FirebaseRecaptchaVerifierModal
+        ref={recaptchaVerifier}
+        firebaseConfig={auth.app.options}
+        attemptInvisibleVerification={true}
+      />
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
@@ -89,9 +120,9 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
 
               {!isOtpSent ? (
                 <PrimaryButton 
-                  title="Send OTP" 
+                  title={loading ? "Sending..." : "Send OTP"} 
                   onPress={handleSendOtp} 
-                  disabled={phoneNumber.length !== 10}
+                  disabled={phoneNumber.length !== 10 || loading}
                   style={styles.button}
                 />
               ) : (
@@ -112,16 +143,19 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
                     {timer > 0 ? (
                       <Text style={styles.timerText}>Resend OTP in {timer}s</Text>
                     ) : (
-                      <TouchableOpacity onPress={() => setTimer(30)}>
+                      <TouchableOpacity onPress={() => {
+                        setTimer(30);
+                        handleSendOtp();
+                      }}>
                         <Text style={styles.resendLink}>Resend OTP</Text>
                       </TouchableOpacity>
                     )}
                   </View>
 
                   <PrimaryButton 
-                    title="Verify & Login" 
+                    title={loading ? "Verifying..." : "Verify & Login"} 
                     onPress={handleVerify} 
-                    disabled={otp.length !== 6}
+                    disabled={otp.length !== 6 || loading}
                     style={styles.button}
                   />
                 </Animated.View>
