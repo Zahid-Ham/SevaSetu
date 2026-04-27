@@ -25,11 +25,6 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "config": {
-        "googleMaps": {
-          "apiKey": ""
-        }
-      },
       "predictiveBackGestureEnabled": false,
       "package": "com.rarakra.SevaSetu",
       "permissions": [
