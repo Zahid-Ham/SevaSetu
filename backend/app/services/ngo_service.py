@@ -213,3 +213,26 @@ def get_nearest_ngo_by_city(city_name: str):
             return ngo
             
     return None
+def get_ngo_volunteers(ngo_id: str):
+    """
+    Fetches all users with role 'VOLUNTEER' belonging to a specific NGO.
+    """
+    users_ref = db.collection("users")
+    docs = users_ref.where("ngo_id", "==", ngo_id).where("role", "==", "VOLUNTEER").stream()
+    
+    volunteers = []
+    for doc in docs:
+        data = doc.to_dict()
+        # Only return non-sensitive info
+        name = data.get("fullName") or data.get("citizen_name") or data.get("name") or "Volunteer"
+        volunteers.append({
+            "id": doc.id,
+            "name": name,
+            "fullName": name, # Compatibility with frontend
+            "email": data.get("email"),
+            "phone": data.get("phone"),
+            "skills": data.get("skills", []),
+            "area": data.get("area", ""),
+            "avatar": data.get("avatar")
+        })
+    return volunteers

@@ -1,3 +1,4 @@
+import { useLanguage } from '../../context/LanguageContext';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, 
@@ -22,6 +23,12 @@ const { width } = Dimensions.get('window');
 type Step = 'TYPE_SELECTION' | 'BASIC_DETAILS' | 'LIVE_FEED' | 'COMMUNITY_INPUT' | 'FINAL_REPORT';
 type ReportType = 'Community Survey' | 'Field Observation Report' | 'Event Report';
 
+const reportTypeKeyMap: Record<string, string> = {
+  'Community Survey': 'communitySurvey',
+  'Field Observation Report': 'fieldObservation',
+  'Event Report': 'eventReport'
+};
+
 interface FeedItem {
   id: string;
   type: 'audio' | 'video' | 'image' | 'pdf' | 'note' | 'community';
@@ -38,24 +45,25 @@ const REPORT_TYPES = [
   { 
     id: 'Community Survey' as ReportType, 
     icon: 'users', 
-    title: 'Community Survey', 
-    desc: 'Use for periodic area checks or structured house-to-house data gathering.' 
+    titleKey: 'communitySurvey', 
+    descKey: 'communitySurveyDesc' 
   },
   { 
     id: 'Field Observation Report' as ReportType, 
     icon: 'eye', 
-    title: 'Field Observation Report', 
-    desc: 'Use for reporting specific incidents, infrastructure damage, or active issues.' 
+    titleKey: 'fieldObservation', 
+    descKey: 'fieldObservationDesc' 
   },
   { 
     id: 'Event Report' as ReportType, 
     icon: 'calendar', 
-    title: 'Event Report', 
-    desc: 'Use to document NGO events, distribution drives, or community meetings.' 
+    titleKey: 'eventReport', 
+    descKey: 'eventReportDesc' 
   }
 ];
 
 export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; onComplete?: () => void }) => {
+  const { t } = useLanguage();
   // Navigation & UI State
   const [step, setStep] = useState<Step>('TYPE_SELECTION');
   const [loading, setLoading] = useState(false);
@@ -193,11 +201,11 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
   // Store items locally and trigger background processing
   const addFeedItem = (type: FeedItem['type'], localUri?: string, extraData?: any) => {
     const labels: Record<string, string> = {
-      audio: '🎤 Syncing voice note...',
-      video: '🎥 Syncing video...',
-      image: '📸 Syncing photo...',
-      pdf: '📄 Syncing document...',
-      note: extraData || 'Note added',
+      audio: t('volunteer.fieldReport.syncingVoice'),
+      video: t('volunteer.fieldReport.syncingVideo'),
+      image: t('volunteer.fieldReport.syncingPhoto'),
+      pdf: t('volunteer.fieldReport.syncingDoc'),
+      note: extraData || t('volunteer.fieldReport.noteAdded'),
     };
     const newItem: FeedItem = {
       id: Math.random().toString(36).substr(2, 9),
@@ -393,7 +401,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
           await reportStorage.clearActiveSession();
           setFinalReport(data.report);
           setStep('FINAL_REPORT');
-          Alert.alert('Report Synced', 'Your field report has been successfully uploaded.');
+          Alert.alert(t('volunteer.fieldReport.reportSynced'), t('volunteer.fieldReport.reportSyncedMsg'));
         } else {
           throw new Error('Server error during sync');
         }
@@ -402,13 +410,13 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         console.warn('[handleEndSession] Offline/Sync Failed:', syncErr);
         await reportStorage.clearActiveSession(); // Clear active to allow new ones, but it's in queue
         Alert.alert(
-          'Offline Mode',
-          'Connection failed. Your report has been saved to the Sync Dashboard and will be uploaded once you are back online.',
-          [{ text: 'OK', onPress: () => { if (onComplete) onComplete(); onBack(); } }]
+          t('volunteer.fieldReport.offlineMode'),
+          t('volunteer.fieldReport.offlineModeMsg'),
+          [{ text: t('common.ok'), onPress: () => { if (onComplete) onComplete(); onBack(); } }]
         );
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to process report');
+      Alert.alert(t('common.error'), err.message || 'Failed to process report');
     } finally {
       setLoading(false);
     }
@@ -418,8 +426,8 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
 
   const renderTypeSelection = () => (
     <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 40 }}>
-      <Text style={styles.stepTitle}>Select Report Type</Text>
-      <Text style={styles.stepSubtitle}>Identify the nature of this field session</Text>
+      <Text style={styles.stepTitle}>{t('volunteer.fieldReport.selectReportType')}</Text>
+      <Text style={styles.stepSubtitle}>{t('volunteer.fieldReport.identifyNature')}</Text>
       
       {REPORT_TYPES.map(item => (
         <TouchableOpacity 
@@ -435,8 +443,8 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
             <Feather name={item.icon as any} size={28} color={colors.primaryGreen} />
           </View>
           <View style={{ flex: 1, marginLeft: 16 }}>
-            <Text style={styles.typeTitle}>{item.title}</Text>
-            <Text style={styles.typeDesc}>{item.desc}</Text>
+            <Text style={styles.typeTitle}>{t(`volunteer.fieldReport.${item.titleKey}`)}</Text>
+            <Text style={styles.typeDesc}>{t(`volunteer.fieldReport.${item.descKey}`)}</Text>
           </View>
           <Feather name="chevron-right" size={20} color={colors.textSecondary} />
         </TouchableOpacity>
@@ -446,56 +454,56 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
 
   const renderBasicDetails = () => (
     <ScrollView style={styles.content}>
-      <Text style={styles.stepTitle}>Session Details</Text>
-      <Text style={styles.stepSubtitle}>Quick setup before you start collecting data</Text>
+      <Text style={styles.stepTitle}>{t('volunteer.fieldReport.sessionDetails')}</Text>
+      <Text style={styles.stepSubtitle}>{t('volunteer.fieldReport.quickSetup')}</Text>
       
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Field Worker Name</Text>
+        <Text style={styles.label}>{t('volunteer.fieldReport.fieldWorkerName')}</Text>
         <TextInput 
           style={styles.input} 
-          placeholder="Enter your name" 
+          placeholder={t('volunteer.fieldReport.enterName')} 
           value={workerInfo.name} 
           onChangeText={t => setWorkerInfo({ ...workerInfo, name: t })} 
         />
       </View>
-
+ 
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Worker ID</Text>
+        <Text style={styles.label}>{t('volunteer.fieldReport.workerId')}</Text>
         <TextInput style={[styles.input, { backgroundColor: '#f0f0f0' }]} value={workerInfo.id} editable={false} />
       </View>
-
+ 
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Session Title</Text>
+        <Text style={styles.label}>{t('volunteer.fieldReport.sessionTitle')}</Text>
         <TextInput 
           style={styles.input} 
-          placeholder="e.g. Ward 4 Water Survey" 
+          placeholder={t('volunteer.fieldReport.sessionTitlePlaceholder')} 
           value={sessionMeta.title} 
           onChangeText={t => setSessionMeta({ ...sessionMeta, title: t })} 
         />
       </View>
-
+ 
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Location (Captured)</Text>
+        <Text style={styles.label}>{t('volunteer.fieldReport.locationCaptured')}</Text>
         <TextInput 
           style={styles.input} 
           value={sessionMeta.location} 
           onChangeText={t => setSessionMeta({ ...sessionMeta, location: t })} 
         />
       </View>
-
+ 
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Quick Description</Text>
+        <Text style={styles.label}>{t('volunteer.fieldReport.quickDescription')}</Text>
         <TextInput 
           style={[styles.input, { height: 100, textAlignVertical: 'top' }]} 
-          placeholder="Describe the objective in 2-3 sentences" 
+          placeholder={t('volunteer.fieldReport.descriptionPlaceholder')} 
           multiline 
           value={sessionMeta.description} 
           onChangeText={t => setSessionMeta({ ...sessionMeta, description: t })} 
         />
       </View>
-
+ 
       <PrimaryButton 
-        title="Start Live Notebook" 
+        title={t('volunteer.fieldReport.startLiveNotebook')} 
         onPress={() => setStep('LIVE_FEED')} 
         disabled={!workerInfo.name || !sessionMeta.title}
         style={{ marginTop: 20 }}
@@ -533,7 +541,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         {feed.length === 0 && (
           <View style={styles.emptyFeed}>
             <Feather name="book-open" size={48} color={colors.textSecondary + '40'} />
-            <Text style={styles.emptyFeedText}>Notebook is empty. Tap icons below to start collecting.</Text>
+            <Text style={styles.emptyFeedText}>{t('volunteer.fieldReport.notebookEmpty')}</Text>
           </View>
         )}
         
@@ -578,16 +586,16 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         }}
       >
         <Feather name="plus" size={20} color="#fff" />
-        <Text style={styles.communityFabText}>Add Community Input</Text>
+        <Text style={styles.communityFabText}>{t('volunteer.fieldReport.addCommunityInput')}</Text>
       </TouchableOpacity>
-
+ 
       {/* Action Bar */}
       <View style={styles.actionBar}>
-        <ActionIcon icon="mic" label="Audio" onPress={toggleRecording} active={isRecording} />
-        <ActionIcon icon="camera" label="Photo" onPress={handleCapturePhoto} />
-        <ActionIcon icon="video" label="Video" onPress={handleCaptureVideo} />
-        <ActionIcon icon="upload" label="File" onPress={handlePickFile} />
-        <ActionIcon icon="edit-3" label="Note" onPress={() => setShowNoteInput(true)} />
+        <ActionIcon icon="mic" label={t('volunteer.fieldReport.audio')} onPress={toggleRecording} active={isRecording} />
+        <ActionIcon icon="camera" label={t('volunteer.fieldReport.photo')} onPress={handleCapturePhoto} />
+        <ActionIcon icon="video" label={t('volunteer.fieldReport.video')} onPress={handleCaptureVideo} />
+        <ActionIcon icon="upload" label={t('volunteer.fieldReport.file')} onPress={handlePickFile} />
+        <ActionIcon icon="edit-3" label={t('volunteer.fieldReport.note')} onPress={() => setShowNoteInput(true)} />
       </View>
 
       {/* Paused Overlay */}
@@ -595,18 +603,18 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         <View style={styles.pausedOverlay}>
           <View style={styles.pausedBadge}>
             <Feather name="pause-circle" size={28} color={colors.primarySaffron} />
-            <Text style={styles.pausedTitle}>Session Paused</Text>
-            <Text style={styles.pausedSubtext}>Tap resume to continue capturing evidence</Text>
+            <Text style={styles.pausedTitle}>{t('volunteer.fieldReport.sessionPaused')}</Text>
+            <Text style={styles.pausedSubtext}>{t('volunteer.fieldReport.resumeToContinue')}</Text>
             <TouchableOpacity style={styles.resumeBtn} onPress={() => setIsPaused(false)}>
               <Feather name="play" size={18} color="#fff" />
-              <Text style={styles.resumeBtnText}>Resume Session</Text>
+              <Text style={styles.resumeBtnText}>{t('volunteer.fieldReport.resumeSession')}</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
 
       <PrimaryButton 
-        title={loading ? "Generating..." : "End Session & Generate Report"} 
+        title={loading ? t('volunteer.fieldReport.generating') : t('volunteer.fieldReport.endSession')} 
         onPress={handleEndSession}
         style={styles.footerBtn}
         disabled={feed.length === 0 || loading || isPaused}
@@ -618,13 +626,13 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
           <View style={styles.recordingPulse}>
             <View style={styles.recordingPulseInner} />
           </View>
-          <Text style={styles.recordingOverlayText}>Recording Field Notes...</Text>
+          <Text style={styles.recordingOverlayText}>{t('volunteer.fieldReport.recordingNotes')}</Text>
           <TouchableOpacity 
             style={styles.stopRecordingBtn}
             onPress={toggleRecording}
           >
             <Feather name="square" size={18} color="#fff" />
-            <Text style={styles.stopRecordingBtnText}>Stop Recording</Text>
+            <Text style={styles.stopRecordingBtnText}>{t('volunteer.fieldReport.stopRecording')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -633,21 +641,21 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
       <Modal visible={showNoteInput} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.noteModal}>
-            <Text style={styles.modalTitle}>Quick Note</Text>
+            <Text style={styles.modalTitle}>{t('volunteer.fieldReport.quickNote')}</Text>
             <TextInput 
               style={styles.noteInput} 
               multiline 
               autoFocus 
-              placeholder="Type your observation..."
+              placeholder={t('volunteer.fieldReport.typeObservation')}
               value={noteText}
               onChangeText={setNoteText}
             />
             <View style={styles.modalButtons}>
               <TouchableOpacity onPress={() => setShowNoteInput(false)} style={styles.modalCancel}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleAddNote} style={styles.modalAdd}>
-                <Text style={styles.modalAddText}>Add to Feed</Text>
+                <Text style={styles.modalAddText}>{t('volunteer.fieldReport.addToFeed')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -733,11 +741,11 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
 
     return (
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 60 }}>
-        <Text style={styles.stepTitle}>Community Input</Text>
-        <Text style={styles.stepSubtitle}>Capture facts and feedback directly from the source</Text>
+        <Text style={styles.stepTitle}>{t('volunteer.fieldReport.communityInput')}</Text>
+        <Text style={styles.stepSubtitle}>{t('volunteer.fieldReport.captureFacts')}</Text>
         
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Approx. Age Range</Text>
+          <Text style={styles.label}>{t('volunteer.fieldReport.approxAge')}</Text>
           <View style={styles.pillRow}>
             {['18-30', '31-50', '51-70', '70+'].map(a => (
               <TouchableOpacity 
@@ -755,7 +763,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Gender</Text>
+          <Text style={styles.label}>{t('volunteer.fieldReport.gender')}</Text>
           <View style={styles.pillRow}>
             {['Male', 'Female', 'Other'].map(g => (
               <TouchableOpacity 
@@ -766,30 +774,30 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
               >
-                <Text style={gender === g && { color: '#fff' }}>{g}</Text>
+                <Text style={gender === g && { color: '#fff' }}>{t(`volunteer.fieldReport.${g.toLowerCase()}`)}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        <Text style={styles.label}>Input Method (Capture At Least One)</Text>
+        <Text style={styles.label}>{t('volunteer.fieldReport.inputMethod')}</Text>
         <View style={styles.methodRow}>
           <MethodCard 
             icon="mic" 
-            label={isRecording ? "Stop" : audioUri ? "Re-record" : "Record voice"} 
+            label={isRecording ? t('volunteer.fieldReport.stop') : audioUri ? t('volunteer.fieldReport.reRecord') : t('volunteer.fieldReport.recordVoice')} 
             onPress={toggleRecording} 
             active={isRecording}
             captured={!!audioUri}
           />
           <MethodCard 
             icon="camera" 
-            label={photoUri ? "Retake" : "Save photo"} 
+            label={photoUri ? t('volunteer.fieldReport.retake') : t('volunteer.fieldReport.savePhoto')} 
             onPress={handleCapturePhoto} 
             captured={!!photoUri}
           />
           <MethodCard 
             icon="type" 
-            label="Type input" 
+            label={t('volunteer.fieldReport.typeInput')} 
             onPress={() => setShowTextInput(!showTextInput)} 
             captured={!!inputText.trim()}
           />
@@ -822,12 +830,12 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         )}
 
         <PrimaryButton 
-          title="Save Community Input" 
+          title={t('common.save')} 
           onPress={() => onSave(age, gender, { audioUri, photoUri, inputText })} 
           disabled={!age || !gender || (!audioUri && !photoUri && !inputText.trim())}
         />
         <TouchableOpacity onPress={onCancel} style={{ marginTop: 15, alignItems: 'center' }}>
-          <Text style={{ color: colors.textSecondary, fontWeight: '600' }}>Back to Feed</Text>
+          <Text style={{ color: colors.textSecondary, fontWeight: '600' }}>{t('volunteer.fieldReport.resumeSession')}</Text>
         </TouchableOpacity>
 
         {isRecording && (
@@ -871,7 +879,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
           <Feather name="check" size={30} color="#fff" />
         </View>
-        <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 0.5 }}>Report Ready</Text>
+        <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.reportReady')}</Text>
         <Text style={{ color: C.orange, fontSize: 14, fontWeight: '700', marginTop: 4 }}>{finalReport?.report_type}</Text>
         <View style={{ flexDirection: 'row', gap: 20, marginTop: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -886,9 +894,9 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
         {/* Stats */}
         <View style={{ flexDirection: 'row', marginTop: 18, gap: 10, width: '100%' }}>
           {[
-            { num: finalReport?.media_library?.length || feed.length, label: 'Evidence', color: C.blue },
-            { num: communityInputs.length, label: 'Surveyed', color: C.violet },
-            { num: finalReport?.key_findings?.length || 0, label: 'Findings', color: C.orange },
+            { num: finalReport?.media_library?.length || feed.length, label: t('volunteer.fieldReport.evidence'), color: C.blue },
+            { num: communityInputs.length, label: t('volunteer.fieldReport.surveyed'), color: C.violet },
+            { num: finalReport?.key_findings?.length || 0, label: t('volunteer.fieldReport.findings'), color: C.orange },
           ].map((s, i) => (
             <View key={i} style={{ flex: 1, backgroundColor: s.color + '15', borderRadius: 14, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: s.color + '30' }}>
               <Text style={{ color: s.color, fontSize: 22, fontWeight: '900' }}>{s.num}</Text>
@@ -905,7 +913,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
             <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.orange, justifyContent: 'center', alignItems: 'center' }}>
               <Feather name="file-text" size={13} color="#fff" />
             </View>
-            <Text style={{ fontSize: 13, fontWeight: '800', color: C.orange, textTransform: 'uppercase', letterSpacing: 0.5 }}>Executive Summary</Text>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: C.orange, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.executiveSummary')}</Text>
           </View>
           <View style={{ padding: 16 }}>
             {Array.isArray(finalReport?.executive_summary) ? (
@@ -928,10 +936,10 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.blue, justifyContent: 'center', alignItems: 'center' }}>
                 <Feather name="search" size={13} color="#fff" />
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5 }}>Evidence Analysis</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.evidenceAnalysis')}</Text>
               <View style={{ flex: 1 }} />
               <View style={{ backgroundColor: C.blue + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
-                <Text style={{ fontSize: 10, fontWeight: '800', color: C.blue }}>{finalReport.evidence_breakdown.length} items</Text>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: C.blue }}>{finalReport.evidence_breakdown.length} {t('volunteer.fieldReport.items')}</Text>
               </View>
             </View>
             <View style={{ padding: 12 }}>
@@ -955,7 +963,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
                           onPress={() => Linking.openURL(mediaUrl)}
                         >
                           <Feather name="eye" size={12} color={C.blue} />
-                          <Text style={{ fontSize: 11, color: C.blue, fontWeight: '700' }}>View</Text>
+                          <Text style={{ fontSize: 11, color: C.blue, fontWeight: '700' }}>{t('volunteer.fieldReport.view')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -976,7 +984,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center' }}>
                 <Feather name="check-circle" size={13} color="#fff" />
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5 }}>Conclusion</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.conclusion')}</Text>
             </View>
             <View style={{ padding: 16 }}>
               {Array.isArray(finalReport.evidence_conclusion) ? (
@@ -1000,7 +1008,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.yellow, justifyContent: 'center', alignItems: 'center' }}>
                 <Feather name="zap" size={13} color="#fff" />
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', textTransform: 'uppercase', letterSpacing: 0.5 }}>Key Findings</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.keyFindings')}</Text>
             </View>
             <View style={{ padding: 14 }}>
               {finalReport.key_findings.map((f: any, i: number) => (
@@ -1025,7 +1033,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.red, justifyContent: 'center', alignItems: 'center' }}>
                 <Feather name="alert-triangle" size={13} color="#fff" />
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.red, textTransform: 'uppercase', letterSpacing: 0.5 }}>Needs Assessment</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.red, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.needsAssessment')}</Text>
             </View>
             <View style={{ padding: 12 }}>
               {finalReport.needs_assessment.map((n: any, i: number) => {
@@ -1053,7 +1061,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.violet, justifyContent: 'center', alignItems: 'center' }}>
                 <Feather name="message-circle" size={13} color="#fff" />
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.violet, textTransform: 'uppercase', letterSpacing: 0.5 }}>Community Voice</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.violet, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.communityVoice')}</Text>
             </View>
             <View style={{ padding: 12 }}>
               {finalReport.community_voice.map((cv: any, i: number) => (
@@ -1086,7 +1094,7 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.teal, justifyContent: 'center', alignItems: 'center' }}>
                 <Feather name="arrow-right-circle" size={13} color="#fff" />
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.teal, textTransform: 'uppercase', letterSpacing: 0.5 }}>Follow-up Actions</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.teal, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.fieldReport.followUpActions')}</Text>
             </View>
             <View style={{ padding: 14 }}>
               {finalReport.recommended_follow_up.map((item: string, i: number) => (
@@ -1108,15 +1116,15 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
             onPress={() => Share.share({ message: JSON.stringify(finalReport, null, 2) })}
           >
             <Feather name="share-2" size={16} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Share</Text>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>{t('common.share')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#ddd' }}>
             <Feather name="download" size={16} color="#333" />
-            <Text style={{ color: '#333', fontWeight: '700', fontSize: 13 }}>Download</Text>
+            <Text style={{ color: '#333', fontWeight: '700', fontSize: 13 }}>{t('common.download')}</Text>
           </TouchableOpacity>
         </View>
 
-        <PrimaryButton title="Done" onPress={() => { if (onComplete) onComplete(); onBack(); }} style={{ marginVertical: 20 }} />
+        <PrimaryButton title={t('common.done')} onPress={() => { if (onComplete) onComplete(); onBack(); }} style={{ marginVertical: 20 }} />
       </View>
     </ScrollView>
     );
@@ -1126,14 +1134,14 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
   return (
     <View style={styles.container}>
       <AppHeader 
-        title={step === 'TYPE_SELECTION' ? 'New Field Report' : reportType || 'Survey Session'} 
+        title={step === 'TYPE_SELECTION' ? t('volunteer.fieldReport.newFieldReport') : (reportType ? t(`volunteer.fieldReport.${reportTypeKeyMap[reportType]}`) : t('volunteer.fieldReport.surveySession'))} 
         showBack 
         onBackPress={() => {
           if (step === 'TYPE_SELECTION') onBack();
           else if (step === 'BASIC_DETAILS') setStep('TYPE_SELECTION');
-          else if (step === 'LIVE_FEED') Alert.alert('Exit Session?', 'All unsaved field notes will be lost.', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Exit', style: 'destructive', onPress: onBack }
+          else if (step === 'LIVE_FEED') Alert.alert(t('volunteer.fieldReport.exitSession'), t('volunteer.fieldReport.exitSessionMsg'), [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('volunteer.fieldReport.exit'), style: 'destructive', onPress: onBack }
           ]);
           else setStep('LIVE_FEED');
         }} 
@@ -1161,7 +1169,11 @@ export const FieldReportScreen = ({ onBack, onComplete }: { onBack: () => void; 
               id: Math.random().toString(), 
               type: 'community', 
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              summary: `Community Member ${input.id} (${input.age}, ${input.gender}) input recorded.${summarySuffix}`,
+              summary: t('volunteer.fieldReport.communityInputRecorded', { 
+                id: input.id, 
+                age: input.age, 
+                gender: t(`volunteer.fieldReport.${input.gender.toLowerCase()}`) 
+              }) + summarySuffix,
               status: 'ready',
               localUri: media?.photoUri || media?.audioUri,
               data: media

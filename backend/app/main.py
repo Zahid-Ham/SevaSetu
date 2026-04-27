@@ -2,7 +2,7 @@ from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from fastapi.staticfiles import StaticFiles # type: ignore
 import os
-from app.api.routes import scan_routes, report_routes, prediction_routes, chat_routes, ngo_routes, bot_routes, task_routes, whatsapp_routes, sms_routes, ivr_routes # type: ignore
+from app.api.routes import scan_routes, report_routes, prediction_routes, chat_routes, ngo_routes, bot_routes, task_routes, whatsapp_routes, sms_routes, ivr_routes, auth_routes, translation_routes, certificate_routes # type: ignore
 
 app = FastAPI(title="SevaSetu Backend")
 
@@ -32,6 +32,9 @@ app.include_router(task_routes.router, tags=["Mission Tasks"])
 app.include_router(whatsapp_routes.router, tags=["WhatsApp Bot"])
 app.include_router(sms_routes.router, tags=["SMS Bot"])
 app.include_router(ivr_routes.router, tags=["IVR Voice Bot"])
+app.include_router(auth_routes.router, prefix="/auth", tags=["Authentication Utilities"])
+app.include_router(translation_routes.router, prefix="/api/ai", tags=["Translation"])
+app.include_router(certificate_routes.router, prefix="/certificates", tags=["Certificates & Badges"])
 
 @app.get("/")
 async def health_check():

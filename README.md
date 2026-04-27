@@ -1,112 +1,80 @@
-# SevaSetu - Community Service Platform
+# SevaSetu - Community Service Platform 🇮🇳
 
-A modern platform connecting citizens with volunteers to solve community issues. Built with **React Native (Expo)** and **FastAPI**.
+A modern, high-performance platform connecting citizens with volunteers to solve community issues. Built with **React Native (Expo)**, **FastAPI**, and **AI-driven** processing.
 
 ---
 
-## 🤖 NEW: Multi-Channel Reporting Bots
+## 🌟 Key Features
+- **3-Way Ecosystem**: Dedicated interfaces for Citizens, Volunteers, and Supervisors.
+- **AI-Driven Reporting**: Automatic categorization and summarization of reports using Google Gemini.
+- **Multi-Channel Input**: Support for Telegram and WhatsApp reporting bots with media syncing.
+- **Robust Mapping**: WebView-based OpenStreetMap integration (Leaflet.js) ensuring maps work everywhere without API key restrictions or SHA-1 fingerprint issues.
+- **Secure Auth**: Manual Google Login flow optimized for Expo Go and production APKs.
+- **Bi-lingual Support**: Seamless switching between Hindi and English.
 
-Citizens can now report community issues directly via Telegram or WhatsApp. These bots support multi-media attachments (Photos, Videos, Audio, PDFs) and automatically sync with the SevaSetu Dashboard.
+---
 
-### 1. Telegram Bot Setup
-1.  **Get a Token**: Message `@BotFather` on Telegram to create a new bot and get your API Token.
-2.  **Configure**: Add your token to `backend/.env` under `TELEGRAM_BOT_TOKEN`.
-3.  **Run**: 
-    ```powershell
-    cd backend
-    python bot/main.py
-    ```
-4.  **Usage**: Start a chat with your bot. It will guide you through sharing a description, location, and multiple attachments. Type **"Done ✅"** when finished to submit the report.
+## 🤖 Multi-Channel Reporting Bots
 
-### 2. WhatsApp Bot Setup (Twilio)
-Since WhatsApp requires a public URL for webhooks, follow these steps for local testing:
+Citizens can report community issues directly via Telegram or WhatsApp. These bots support multi-media attachments and sync automatically with the SevaSetu Dashboard.
 
-1.  **Expose Local Server**: Use **localtunnel** or **ngrok** to create a public bridge:
-    ```powershell
-    npx localtunnel --port 8000
-    ```
-    *(Copy the URL provided, e.g., `https://thick-roses-swim.loca.lt`)*
+### 1. Telegram Bot
+- **Run**: `cd backend && python bot/main.py`
+- **Features**: Live location sharing, photo/video/audio attachments.
 
-2.  **Configure Twilio Sandbox**:
-    - Go to [Twilio Console > Messaging Settings > WhatsApp Sandbox Settings](https://console.twilio.com/).
-    - Set the **"When a message comes in"** URL to: `YOUR_TUNNEL_URL/whatsapp/webhook`
-    - *Example:* `https://thick-roses-swim.loca.lt/whatsapp/webhook`
-    - Set the method to **POST** and click **Save**.
-
-3.  **Join from Mobile**:
-    - Add the Twilio Sandbox number to your WhatsApp contacts.
-    - Send the join code (e.g., `join sky-blue`) to that number.
-    - Send **"Hi"** to start the reporting flow!
+### 2. WhatsApp Bot (Twilio)
+- **Expose Local Server**: `npx localtunnel --port 8000`
+- **Webhook URL**: `YOUR_TUNNEL_URL/whatsapp/webhook`
+- **Features**: Interactive messaging flow for easy reporting.
 
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Backend Setup
-The backend handles AI processing (Gemini), Firestore interactions, and reports.
-
-1.  **Navigate to backend**:
-    ```bash
-    cd backend
-    ```
-2.  **Create & Start Virtual Environment**:
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # Windows: venv\Scripts\activate
-    ```
-3.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-4.  **Configuration (.env)**:
-    Create a `.env` file in the `backend/` directory (see [Environment Variables](#environment-variables)).
-5.  **Run Server**:
-    Use the specific host binding to allow mobile connections:
-    ```bash
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    ```
-
----
+The backend handles AI processing (Gemini), Firestore interactions, and bot logic.
+1. `cd backend`
+2. `python -m venv venv`
+3. `source venv/bin/activate` (Windows: `venv\Scripts\activate`)
+4. `pip install -r requirements.txt`
+5. Create `backend/.env` (see template).
+6. `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
 
 ### 2. Frontend Setup
 The mobile app is built with Expo SDK 54.
-
-1.  **Navigate to frontend**:
-    ```bash
-    cd frontend
-    ```
-2.  **Install Dependencies**:
-    ```bash
-    npm install
-    ```
-3.  **Start Development Server**:
-    ```bash
-    npx expo start -c
-    ```
+1. `cd frontend`
+2. `npm install`
+3. `npx expo start -c`
 
 ---
 
-## 🔑 Environment Variables & Credentials
+## 🛠️ Architecture & Portability
+- **Map Fallback**: We use a `WebView` + `Leaflet.js` + `OpenStreetMap` approach. This avoids the common `react-native-maps` "Beige Screen" issue caused by mismatched SHA-1 fingerprints in local development.
+- **Auth Flow**: The Google Sign-in uses a manual `WebBrowser` flow to ensure compatibility with Expo Go without requiring the `androidClientId` during development.
 
-### Backend (.env)
-Place a `.env` file inside the `backend/` folder with these keys:
+---
 
+## 🔑 Environment Variables
+### Backend (`backend/.env`)
 ```ini
-# Core AI & DB
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+GEMINI_API_KEY=YOUR_KEY
 PROJECT_ID=YOUR_FIREBASE_PROJECT_ID
 FIREBASE_CREDENTIALS_PATH=credentials/firebase-credentials.json
 GOOGLE_APPLICATION_CREDENTIALS=credentials/sevasetu-documentai.json
-DOCUMENT_AI_LOCATION=us
-DOCUMENT_AI_PROCESSOR_ID=YOUR_PROCESSOR_ID
+CLOUDINARY_CLOUD_NAME=your_name
+TELEGRAM_BOT_TOKEN=your_token
+```
 
-# Media Storage (Cloudinary)
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
+### Frontend (`frontend/.env`)
+```ini
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=your_web_client_id
+EXPO_PUBLIC_USE_PRODUCTION=true
+EXPO_PUBLIC_PRODUCTION_API_URL=https://your-backend-api.com
+```
 
-# Bots
-TELEGRAM_BOT_TOKEN=your_telegram_token
-TWILIO_ACCOUNT_SID=your_twilio_sid
-TWILIO_AUTH_TOKEN=your_twilio_token
-TWILIO_WHATSAPP_FROM=whatsapp:+15672298167
+---
+
+## 🛡️ Security Note
+- **DO NOT** commit `.env` files or the `credentials/` folder.
+- **.gitignore** is pre-configured to ignore all sensitive configuration files.
+- Hardcoded fallback IDs have been removed from the source code for safety.

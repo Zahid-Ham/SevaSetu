@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { BASE_URL } from './eventPredictionService';
 
 /**
@@ -10,9 +10,8 @@ export const uploadMediaFile = async (fileUri: string, fileName: string, mimeTyp
   try {
     console.log(`[UploadService] Uploading ${fileName} (${mimeType}) from ${fileUri}`);
 
-    // Use legacy uploadAsync as required by Expo SDK 54
+    console.log(`[UploadService] Uploading ${fileName} (${mimeType}) from ${fileUri}`);
     const uploadResult = await FileSystem.uploadAsync(`${BASE_URL}/field-report/process-item`, fileUri, {
-      httpMethod: 'POST',
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,
       fieldName: 'file',
       parameters: {

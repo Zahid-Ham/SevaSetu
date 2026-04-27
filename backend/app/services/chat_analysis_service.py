@@ -20,7 +20,7 @@ from app.services.document_ai_service import process_document # type: ignore
 
 print("\n" + "="*50)
 print("[SYSTEM] MISSION AUDIT ENGINE v2.3 (FIXED ARGUMENTS) ACTIVE")
-print("[SYSTEM] 🔥 FORCING NEW DOCUMENT AI OCR FOR ALL ASSETS")
+print("[SYSTEM] [!] FORCING NEW DOCUMENT AI OCR FOR ALL ASSETS")
 print("="*50 + "\n")
 
 # Configure Cloudinary for Signed URL Bypass
@@ -83,7 +83,7 @@ async def get_document_intelligence(file_url: str, file_name: str, mime_type: st
                     analysis = data.get("analysis", {})
                     summary = analysis.get("file_summary", "")
                     doc_type = analysis.get("doc_type", "Document")
-                    print(f"[Intelligence] ✅ PRE-COMPUTED HIT: {file_name} ({doc_type})")
+                    print(f"[Intelligence] (OK) PRE-COMPUTED HIT: {file_name} ({doc_type})")
                     return f"This is a {doc_type}. {summary}"
 
         # 2. Check OLD cache (Legacy)
@@ -94,7 +94,7 @@ async def get_document_intelligence(file_url: str, file_name: str, mime_type: st
         if cached_doc.exists:
             return cached_doc.to_dict().get("intelligence", "")
 
-        print(f"[Intelligence] 🔄 No summary found. Falling back to active OCR for: {file_name}")
+        print(f"[Intelligence] (WAIT) No summary found. Falling back to active OCR for: {file_name}")
         
         # Normalize MIME type for Gemini
         processed_mime = mime_type
@@ -270,6 +270,7 @@ async def analyze_chat(messages: List[Dict[str, Any]], event_name: str = "") -> 
         print(f"[Chat Analysis] Filtered messages: {len(mission_messages)} / {len(messages)}")
         
         # Inject the refined conversation into the prompt
+        from app.services.gemini_service import BILINGUAL_INSTRUCTION  # type: ignore
         prompt = f"""
         You are an expert NGO coordinator for SevaSetu.
         Analyze the following conversation between a Supervisor and a Volunteer regarding the mission '{event_name}'.
@@ -280,23 +281,31 @@ async def analyze_chat(messages: List[Dict[str, Any]], event_name: str = "") -> 
         CONVERSATION:
         {convo_text}
         
-        Return a HIGHLY STRUCTURED JSON object with these fields:
-        - executive_summary (string): 2-3 sentence overview of the MISSION progress and status.
-        - visual_insights (array of objects): For every PDF or Image mentioned, provide:
-            {{"name": "filename", "type": "pdf/image", "summary": "2-sentence intelligence extraction showing its relevance to the mission"}}
-        - issues_discussed (array of strings): Specific mission-related problems or topics raised.
-        - mission_context (string): Strategic alignment with '{event_name}'.
-        - key_insights (array of strings): Critical observations about the work or planning quality.
-        - volunteer_readiness (object): {{"status": "Ready" | "Needs Clarification" | "Not Ready", "reasoning": "Brief explanation why"}}
-        - action_items (array of strings): Concrete mission-related next steps.
-        - sentiment_breakdown (object): {{"supervisor": "...", "volunteer": "...", "overall": "..."}}
+        """ + BILINGUAL_INSTRUCTION + f"""
+        
+        Return a HIGHLY STRUCTURED JSON object where ALL string text fields are bilingual objects
+        {{"en": "English text", "hi": "हिंदी पाठ"}} EXCEPT for: "name", "type", "status" enum values.
+        
+        Fields:
+        - executive_summary (BILINGUAL object)
+        - visual_insights (array): [{{"name": "filename", "type": "pdf/image", "summary": {{"en":"","hi":""}}}}]
+        - issues_discussed (array of BILINGUAL objects)
+        - mission_context (BILINGUAL object)
+        - key_insights (array of BILINGUAL objects)
+        - volunteer_readiness: {{"status": "Ready|Needs Clarification|Not Ready", "reasoning": {{"en":"","hi":""}}}}
+        - action_items (array of BILINGUAL objects)
+        - sentiment_breakdown: {{
+            "supervisor": {{"en": "English", "hi": "Hindi"}},
+            "volunteer": {{"en": "English", "hi": "Hindi"}},
+            "overall": {{"en": "English", "hi": "Hindi"}}
+          }}
         - quality_score (number): 1-10 on mission-focused communication clarity.
         
         Return ONLY raw JSON. No markdown formatting.
         """
 
-        response = retry_with_backoff(model.generate_content, prompt)
-        text = response.text.strip()
+        from app.services.ai_service import ai_manager
+        text = await ai_manager.generate_text(prompt)
         
         # Clean markdown if present
         if text.startswith("```"):

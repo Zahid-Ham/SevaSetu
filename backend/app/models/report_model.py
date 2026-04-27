@@ -4,6 +4,7 @@ from typing import Optional, List
 class ReportCreate(BaseModel):
     # Metadata
     citizen_name: Optional[str] = None
+    citizen_id: Optional[str] = None
     phone: Optional[str] = None
     precise_location: Optional[str] = None
     gps_coordinates: Optional[str] = None

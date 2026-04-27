@@ -6,17 +6,19 @@ import {
   LayoutAnimation, UIManager
 } from 'react-native';
 import BottomSheet, { BottomSheetView, BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import MapView, { Marker, PROVIDER_GOOGLE, Callout, Polyline } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
-import { AppHeader, PrimaryButton } from '../../components';
+import { AppHeader, PrimaryButton, DynamicText } from '../../components';
 import { colors, typography, globalStyles, spacing } from '../../theme';
 import { useEventStore } from '../../services/store/useEventStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { useLanguage } from '../../context/LanguageContext';
 import { getDistance, formatDistance } from '../../utils/geoUtils';
+import { getBilingualText } from '../../utils/bilingualHelpers';
 import { VolunteerAssignment } from '../../services/api/eventPredictionService';
 
 const { width, height } = Dimensions.get('window');
@@ -24,6 +26,7 @@ const CARD_WIDTH = width * 0.85;
 const CARD_SPACING = spacing.md;
 
 export const TasksMapScreen = () => {
+  const { t, language } = useLanguage();
   const { user } = useAuthStore();
   const { 
     assignments, 
@@ -43,7 +46,7 @@ export const TasksMapScreen = () => {
   const [mapReady, setMapReady] = useState(false);
   const [distanceFilter, setDistanceFilter] = useState<number | null>(null); // null = all, else km
 
-  const mapRef = useRef<MapView>(null);
+  const webViewRef = useRef<any>(null);
   const listRef = useRef<FlatList>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['25%', '50%', '90%'], []);
@@ -74,19 +77,10 @@ export const TasksMapScreen = () => {
   const getUserLocation = async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
-
-    // Start live tracking
     const subscription = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5, timeInterval: 5000 },
-      (loc) => {
-        setUserLocation(loc);
-        // Auto-focus map on user if map isn't focused on a mission
-        if (!selectedAssignment && mapReady) {
-          // mapRef.current?.animateToRegion({ ... })
-        }
-      }
+      (loc) => { setUserLocation(loc); }
     );
-
     return () => subscription.remove();
   };
 
@@ -104,21 +98,35 @@ export const TasksMapScreen = () => {
   // 2. Process and Sort Missions
   const processedMissions = useMemo(() => {
     // Combine regular assignments + live matches
-    const directMissions = assignments.filter(a => a.event_latitude && a.event_longitude);
+    const directMissions = (assignments || [])
+      .filter(a => {
+        const lat = parseFloat(String(a.event_latitude));
+        const lng = parseFloat(String(a.event_longitude));
+        return !isNaN(lat) && !isNaN(lng);
+      })
+      .map(a => ({
+        ...a,
+        event_latitude: parseFloat(String(a.event_latitude)),
+        event_longitude: parseFloat(String(a.event_longitude)),
+      }));
     
     // Map live matches into a compatible structure
-    const matchMissions = liveMatches
-      .filter(m => m.latitude && m.longitude)
+    const matchMissions = (liveMatches || [])
+      .filter(m => {
+        const lat = parseFloat(String(m.latitude));
+        const lng = parseFloat(String(m.longitude));
+        return !isNaN(lat) && !isNaN(lng);
+      })
       .map(m => ({
         id: `match_${m.event_id}`,
         event_id: m.event_id,
         event_type: m.event_type,
-        event_description: m.description || m.ai_reasoning || "Live match found based on your profile.",
+        event_description: m.description || m.ai_reasoning || t('volunteer.tasksMap.exactLocationTbd'),
         event_date_start: m.event_date_start,
         event_date_end: m.event_date_end,
-        event_latitude: m.latitude,
-        event_longitude: m.longitude,
-        volunteer_area: m.area || "Location TBD",
+        event_latitude: parseFloat(String(m.latitude)),
+        event_longitude: parseFloat(String(m.longitude)),
+        volunteer_area: m.area || t('volunteer.tasksMap.exactLocationTbd'),
         status: 'pending',
         is_live_match: true,
         match_score: m.match_score,
@@ -131,11 +139,16 @@ export const TasksMapScreen = () => {
     
     const enriched = baseMissions.map(m => {
       let dist = 0;
-      if (userLocation) {
-        dist = getDistance(
-          { latitude: userLocation.coords.latitude, longitude: userLocation.coords.longitude },
-          { latitude: m.event_latitude!, longitude: m.event_longitude! }
-        );
+      if (userLocation && !isNaN(userLocation.coords.latitude) && !isNaN(userLocation.coords.longitude)) {
+        try {
+          dist = getDistance(
+            { latitude: userLocation.coords.latitude, longitude: userLocation.coords.longitude },
+            { latitude: m.event_latitude, longitude: m.event_longitude }
+          );
+        } catch (e) {
+          console.warn('[TasksMapScreen] getDistance error:', e);
+          dist = 0;
+        }
       }
       return { ...m, distance: dist };
     });
@@ -178,24 +191,26 @@ export const TasksMapScreen = () => {
 
     // Sync: Center map on marker
     if (mission.event_latitude && mission.event_longitude) {
-      mapRef.current?.animateToRegion({
-        latitude: mission.event_latitude - 0.005,
-        longitude: mission.event_longitude,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      }, 1000);
+      webViewRef.current?.injectJavaScript(`
+        if (window.mapInstance) {
+          window.mapInstance.panTo({ lat: ${mission.event_latitude - 0.005}, lng: ${mission.event_longitude} });
+          window.mapInstance.setZoom(14);
+        } true;
+      `);
     }
   };
 
   const onCardPress = (mission: any) => {
     setSelectedAssignment(mission);
+    // Send message to WebView to center map
     if (mission.event_latitude && mission.event_longitude) {
-      mapRef.current?.animateToRegion({
-        latitude: mission.event_latitude - 0.005, // Offset so card doesn't block pin
-        longitude: mission.event_longitude,
-        latitudeDelta: 0.012,
-        longitudeDelta: 0.012,
-      }, 1000);
+      webViewRef.current?.injectJavaScript(`
+        if (window.mapInstance) {
+          window.mapInstance.panTo({ lat: ${0}, lng: ${0} });
+          window.mapInstance.setZoom(14);
+        }
+        true;
+      `.replace('lat: ${0}', `lat: ${mission.event_latitude}`).replace('lng: ${0}', `lng: ${mission.event_longitude}`));
     }
   };
 
@@ -234,7 +249,9 @@ export const TasksMapScreen = () => {
     
     const lat = event_latitude;
     const lng = event_longitude;
-    const label = encodeURIComponent(event_type || 'Mission Location');
+    const typeStr = getBilingualText(event_type, language);
+    const translatedType = t(`demo.${typeStr}`) !== `demo.${typeStr}` ? t(`demo.${typeStr}`) : typeStr;
+    const label = encodeURIComponent(translatedType || t('volunteer.tasksMap.nearbyMissions'));
 
     // Use a high-reliability coordinate-first URL format
     const url = Platform.select({
@@ -250,14 +267,14 @@ export const TasksMapScreen = () => {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={colors.primaryGreen} />
-        <Text style={styles.loadingText}>Locating nearest missions...</Text>
+        <Text style={styles.loadingText}>{t('volunteer.tasksMap.locatingMissions')}</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Nearby Missions" />
+      <AppHeader title={t('volunteer.tasksMap.nearbyMissions')} />
 
       {/* Distance Filter Chips */}
       <View style={styles.filterOverlay}>
@@ -269,98 +286,86 @@ export const TasksMapScreen = () => {
               onPress={() => setDistanceFilter(dist)}
             >
               <Text style={[styles.filterChipTxt, distanceFilter === dist && styles.filterChipTxtActive]}>
-                {dist === null ? 'All' : `${dist}km`}
+                {dist === null ? t('volunteer.tasksMap.all') : t(`volunteer.tasksMap.km${dist}`)}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      <MapView
-        ref={mapRef}
+      <WebView
+        ref={webViewRef}
         style={styles.map}
-        initialRegion={{
-          latitude: userLocation?.coords.latitude || 19.0760,
-          longitude: userLocation?.coords.longitude || 72.8777,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
+        originWhitelist={['*']}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        mixedContentMode="always"
+        onLoad={() => setMapReady(true)}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.missionId) {
+              const idx = processedMissions.findIndex(m => m.id === data.missionId);
+              if (idx >= 0) onMarkerPress(processedMissions[idx], idx);
+            }
+          } catch {}
         }}
-        onMapReady={() => setMapReady(true)}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-      >
-        {/* 1. User's Live Location Marker (RED PIN) */}
-        {userLocation && (
-          <Marker
-            coordinate={{ 
-              latitude: userLocation.coords.latitude, 
-              longitude: userLocation.coords.longitude 
-            }}
-            title="You are here"
-            zIndex={100}
-            tracksViewChanges={false}
-          >
-            <View style={styles.userMarkerContainer}>
-              <Animated.View style={[
-                styles.userMarkerPulse, 
-                { 
-                  backgroundColor: colors.error + '40', // Red Pulse
-                  borderColor: colors.error,
-                  transform: [{ scale: pulseAnim }], 
-                  opacity: pulseAnim.interpolate({
-                    inputRange: [1, 1.5],
-                    outputRange: [0.6, 0]
-                  }) 
-                }
-              ]} />
-              <View style={[styles.userMarkerDot, { backgroundColor: colors.error }]} />
-            </View>
-          </Marker>
-        )}
+        source={{ html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="initial-scale=1.0, width=device-width" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css?t=${Date.now()}" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?t=${Date.now()}"></script>
+  <style>
+    * { margin:0; padding:0; } 
+    html,body,#map { width:100%; height:100%; }
+    #engine-mark { position:fixed; bottom:5px; left:5px; z-index:1000; font-size:8px; color:#999; pointer-events:none; }
+  </style>
+</head>
+<body>
+  <div id="engine-mark">OSM+Leaflet (Missions)</div>
+  <div id="map"></div>
+  <script>
+    var map = L.map('map', { zoomControl: true })
+      .setView([${userLocation?.coords.latitude || 19.076}, ${userLocation?.coords.longitude || 72.8777}], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19
+    }).addTo(map);
+    window.mapInstance = map;
 
-        {/* 2. Connection Path (BLUE Polyline for SELECTED Mission only) */}
-        {userLocation && selectedAssignment && (
-          <Polyline
-            coordinates={[
-              { latitude: userLocation.coords.latitude, longitude: userLocation.coords.longitude },
-              { latitude: (selectedAssignment as any).event_latitude!, longitude: (selectedAssignment as any).event_longitude! }
-            ]}
-            strokeColor={colors.accentBlue} // Blue Path
-            strokeWidth={4}
-            lineDashPattern={undefined}
-          />
-        )}
+    ${userLocation ? `
+    L.circleMarker([${userLocation.coords.latitude}, ${userLocation.coords.longitude}], {
+      radius: 12, fillColor: '#E53935', color: '#fff', weight: 3, fillOpacity: 1
+    }).addTo(map).bindPopup('You are here');
+    ` : ''}
 
-        {/* 3. Missions Pins */}
-        {processedMissions.map((m, i) => (
-          <Marker
-            key={m.id}
-            coordinate={{ latitude: m.event_latitude!, longitude: m.event_longitude! }}
-            onPress={() => onMarkerPress(m, i)}
-            zIndex={selectedAssignment?.id === m.id ? 1000 : i}
-            tracksViewChanges={false}
-          >
-            <View style={{ alignItems: 'center' }}>
-              <View style={[
-                styles.customMarker, 
-                selectedAssignment?.id === m.id && styles.customMarkerActive,
-                m.status === 'pending' && styles.customMarkerPending
-              ]}>
-                <Feather 
-                  name={m.match_score >= 0.8 ? "zap" : "map-pin"} 
-                  size={selectedAssignment?.id === m.id ? 22 : 18} 
-                  color="#fff" 
-                />
-              </View>
-              {/* The "Tail" of the pin */}
-              <View style={[
-                styles.markerPointer, 
-                { borderTopColor: selectedAssignment?.id === m.id ? '#2962FF' : colors.primaryGreen }
-              ]} />
-            </View>
-          </Marker>
-        ))}
-      </MapView>
+    ${processedMissions.map(m => `
+    (function() {
+      var isSelected = ${selectedAssignment?.id === m.id ? 'true' : 'false'};
+      var color = isSelected ? '#304FFE' : '${(m.match_score || 0) >= 0.8 ? '#F59E0B' : '#2E7D32'}';
+      L.circleMarker([${m.event_latitude}, ${m.event_longitude}], {
+        radius: isSelected ? 14 : 10,
+        fillColor: color, color: '#fff', weight: 2, fillOpacity: 1
+      }).addTo(map)
+        .bindPopup(${JSON.stringify(m.event_type || '')})
+        .on('click', function() {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ missionId: '${m.id}' }));
+        });
+    })();
+    `).join('\n')}
+
+    ${userLocation && selectedAssignment ? `
+    L.polyline([
+      [${userLocation.coords.latitude}, ${userLocation.coords.longitude}],
+      [${(selectedAssignment as any).event_latitude}, ${(selectedAssignment as any).event_longitude}]
+    ], { color: '#1565C0', weight: 3, opacity: 0.8 }).addTo(map);
+    ` : ''}
+  </script>
+</body>
+</html>
+        ` }}
+      />
 
       {/* Horizontal List of Mission Cards */}
       <View style={styles.listOverlay}>
@@ -378,28 +383,36 @@ export const TasksMapScreen = () => {
               onPress={() => onCardPress(item)}
               activeOpacity={0.9}
             >
-              <View style={styles.cardTop}>
-                <View style={styles.matchBadge}>
-                  <Text style={styles.matchTxt}>{Math.round(item.match_score * 100)}% Match</Text>
+              <LinearGradient 
+                colors={selectedAssignment?.id === item.id ? [colors.primaryGreen + '10', '#fff'] : ['#fff', '#fff']} 
+                style={styles.cardGradient}
+              >
+                <View style={styles.cardTop}>
+                  <View style={styles.matchBadge}>
+                    <Text style={styles.matchTxt}>{Math.round(item.match_score * 100)}% {t('assignments.skillMatch')}</Text>
+                  </View>
+                  <Text style={styles.distBadge}>{formatDistance(item.distance || 0)}</Text>
                 </View>
-                <Text style={styles.distBadge}>{formatDistance(item.distance || 0)}</Text>
-              </View>
-              <Text style={styles.cardTitle} numberOfLines={1}>{item.event_type}</Text>
-              <Text style={styles.cardArea} numberOfLines={1}><Feather name="map-pin" size={10} /> {item.volunteer_area}</Text>
-              <View style={styles.skillsRow}>
-                {item.event_required_skills?.slice(0, 2).map((s: string) => (
-                  <View key={s} style={styles.skillDot} />
-                ))}
-                <Text style={styles.skillsLabel}>
-                  {item.event_required_skills?.length} skills needed
-                </Text>
-              </View>
+                <DynamicText style={styles.cardTitle} numberOfLines={1} text={item.event_type} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                  <Feather name="map-pin" size={10} color={colors.textSecondary} />
+                  <DynamicText style={styles.cardArea} numberOfLines={1} text={item.volunteer_area} />
+                </View>
+                <View style={styles.skillsRow}>
+                  {item.event_required_skills?.slice(0, 3).map((s: string, idx: number) => (
+                    <View key={idx} style={[styles.skillDot, { backgroundColor: colors.accentBlue }]} />
+                  ))}
+                  <Text style={styles.skillsLabel}>
+                    {item.event_required_skills?.length} {t('volunteer.tasksMap.skillsNeeded')}
+                  </Text>
+                </View>
+              </LinearGradient>
             </TouchableOpacity>
           )}
           keyExtractor={item => item.id}
           ListEmptyComponent={
             <View style={styles.emptyList}>
-              <Text style={styles.emptyText}>No missions found in this radius.</Text>
+              <Text style={styles.emptyText}>{t('volunteer.tasksMap.noMissions')}</Text>
             </View>
           }
         />
@@ -408,12 +421,16 @@ export const TasksMapScreen = () => {
       {/* Floating My Location Button */}
       <TouchableOpacity 
         style={styles.myLocBtn}
-        onPress={() => userLocation && mapRef.current?.animateToRegion({
-          latitude: userLocation.coords.latitude,
-          longitude: userLocation.coords.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        })}
+        onPress={() => {
+          if (userLocation) {
+            webViewRef.current?.injectJavaScript(`
+              if (window.mapInstance) {
+                window.mapInstance.panTo({ lat: ${userLocation.coords.latitude}, lng: ${userLocation.coords.longitude} });
+                window.mapInstance.setZoom(15);
+              } true;
+            `);
+          }
+        }}
       >
         <Feather name="crosshair" size={20} color={colors.primaryGreen} />
       </TouchableOpacity>
@@ -428,7 +445,7 @@ export const TasksMapScreen = () => {
         backgroundStyle={styles.bottomSheetBackground}
         handleIndicatorStyle={styles.bottomSheetIndicator}
       >
-        <BottomSheetView style={styles.sheetContent}>
+        <View style={styles.sheetContent}>
           {selectedAssignment && !accepted ? (
             <>
               <View style={styles.detailHeader}>
@@ -437,8 +454,8 @@ export const TasksMapScreen = () => {
                     <Feather name="activity" size={20} color={colors.accentBlue} />
                   </LinearGradient>
                   <View>
-                    <Text style={styles.detailType}>{selectedAssignment.event_type}</Text>
-                    <Text style={styles.detailDistance}>{formatDistance(selectedAssignment.distance || 0)} from you</Text>
+                    <DynamicText style={styles.detailType} text={selectedAssignment.event_type} />
+                    <Text style={styles.detailDistance}>{formatDistance(selectedAssignment.distance || 0)} {t('volunteer.tasksMap.fromYou')}</Text>
                   </View>
                 </View>
                 <TouchableOpacity onPress={() => setSelectedAssignment(null)} style={styles.closeDetail}>
@@ -449,12 +466,12 @@ export const TasksMapScreen = () => {
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
                   <Text style={styles.statVal}>{Math.round(selectedAssignment.match_score * 100)}%</Text>
-                  <Text style={styles.statLab}>MATCHING</Text>
+                  <Text style={styles.statLab}>{t('assignments.skillMatch').toUpperCase()}</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
                   <Text style={styles.statVal}>{selectedAssignment.event_date_start.split('-').slice(1).reverse().join('/')}</Text>
-                  <Text style={styles.statLab}>DATE</Text>
+                  <Text style={styles.statLab}>{t('supervisor.assignmentManager.date').toUpperCase()}</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <TouchableOpacity style={styles.statItem} onPress={openInMaps}>
@@ -468,71 +485,83 @@ export const TasksMapScreen = () => {
                 <View style={styles.locationIconCircle}>
                   <Feather name="map-pin" size={14} color={colors.primaryGreen} />
                 </View>
-                <Text style={styles.locationDetailText} numberOfLines={2}>
-                  {selectedAssignment.volunteer_area || (selectedAssignment as any).event_area || "Exact location details will be provided upon acceptance."}
-                </Text>
+                <DynamicText style={styles.locationDetailText} numberOfLines={2} text={selectedAssignment.volunteer_area || (selectedAssignment as any).event_area || t('volunteer.tasksMap.exactLocationTbd')} />
               </View>
 
-              <BottomSheetScrollView style={styles.detailScroll} showsVerticalScrollIndicator={false}>
+                <BottomSheetScrollView 
+                  style={styles.detailScroll} 
+                  contentContainerStyle={{ paddingBottom: 150 }} 
+                  showsVerticalScrollIndicator={true}
+                >
                 {/* NEW: Supervisor Description Section */}
                 {selectedAssignment.event_description && (
                   <View style={styles.descriptionSection}>
-                    <Text style={styles.sectionHeader}>MISSION DESCRIPTION</Text>
-                    <Text style={styles.descriptionText}>{selectedAssignment.event_description}</Text>
+                    <Text style={styles.sectionHeader}>{t('volunteer.assignments.missionDetails').toUpperCase()}</Text>
+                    <DynamicText 
+                      style={styles.descriptionText} 
+                      text={selectedAssignment.event_description} 
+                      collection="assignments"
+                      docId={selectedAssignment.id}
+                      field="event_description"
+                    />
                   </View>
                 )}
 
-                <Text style={styles.sectionHeader}>AI MATCHING REASONING</Text>
-                <Text style={styles.aiReasoning}>
-                  {(selectedAssignment as any).ai_reasoning || 
-                   "🌟 Strong match! Your proximity and skill set make you an ideal volunteer for this mission."}
-                </Text>
+                <Text style={styles.sectionHeader}>{t('supervisor.assignmentManager.aiReasoning').toUpperCase()}</Text>
+                <DynamicText 
+                  style={styles.aiReasoning} 
+                  text={(selectedAssignment as any).ai_reasoning || t('volunteer.tasksMap.defaultAiReasoning')} 
+                  collection="assignments"
+                  docId={selectedAssignment.id}
+                  field="ai_reasoning"
+                />
 
-                <Text style={styles.sectionHeader}>REQUIRED SKILLS</Text>
+                <Text style={styles.sectionHeader}>{t('assignments.filterBySkills').toUpperCase()}</Text>
                 <View style={styles.skillsGrid}>
                   {selectedAssignment.event_required_skills?.map(s => (
                     <View key={s} style={styles.detailSkillChip}>
-                      <Text style={styles.detailSkillTxt}>{s.replace('_', ' ')}</Text>
+                      <Text style={styles.detailSkillTxt}>{t(`skills.${s}`) !== `skills.${s}` ? t(`skills.${s}`) : s.replace('_', ' ')}</Text>
                     </View>
                   ))}
                 </View>
-              </BottomSheetScrollView>
 
-              <View style={styles.actionRow}>
-                {selectedAssignment.status === 'accepted' ? (
-                  <View style={styles.acceptedTag}>
-                    <Feather name="check-circle" size={18} color="#fff" />
-                    <Text style={styles.acceptedTagTxt}>Mission Already Accepted</Text>
-                  </View>
-                ) : (
-                  <>
-                    <TouchableOpacity 
-                      style={styles.declineBtn} 
-                      onPress={() => setSelectedAssignment(null)}
-                    >
-                      <Text style={styles.declineTxt}>Maybe Later</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.acceptBtn} 
-                      onPress={handleAccept}
-                      disabled={loadingAction}
-                    >
-                      <LinearGradient colors={['#1B5E20', '#2E7D32']} style={styles.acceptGradient}>
-                        {loadingAction ? <ActivityIndicator color="#fff" /> : <Text style={styles.acceptTxt}>Accept Mission</Text>}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
+                {/* Move Action Row INSIDE ScrollView to ensure visibility */}
+                <View style={[styles.actionRow, { marginTop: 20, marginBottom: 20 }]}>
+                  {selectedAssignment.status === 'accepted' ? (
+                    <View style={styles.acceptedTag}>
+                      <Feather name="check-circle" size={18} color="#fff" />
+                      <Text style={styles.acceptedTagTxt}>{t('volunteer.tasksMap.accepted')}</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity 
+                        style={styles.declineBtn} 
+                        onPress={() => setSelectedAssignment(null)}
+                      >
+                        <Text style={styles.declineTxt}>{t('volunteer.tasksMap.maybeLater')}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.acceptBtn} 
+                        onPress={handleAccept}
+                        disabled={loadingAction}
+                      >
+                        <LinearGradient colors={['#1B5E20', '#2E7D32']} style={styles.acceptGradient}>
+                          {loadingAction ? <ActivityIndicator color="#fff" /> : <Text style={styles.acceptTxt}>{t('volunteer.tasksMap.acceptMission')}</Text>}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </BottomSheetScrollView>
             </>
           ) : accepted ? (
             <View style={styles.successView}>
               <Ionicons name="checkmark-circle" size={80} color={colors.success} />
-              <Text style={styles.successTitle}>Mission Accepted!</Text>
-              <Text style={styles.successSub}>Thank you, {user?.name || 'Volunteer'}. Proceed to the location marked on the map.</Text>
+              <Text style={styles.successTitle}>{t('volunteer.tasksMap.missionAccepted')}</Text>
+              <Text style={styles.successSub}>{t('volunteer.tasksMap.proceedToLocation')}</Text>
             </View>
           ) : null}
-        </BottomSheetView>
+        </View>
       </BottomSheet>
     </View>
   );
@@ -545,10 +574,10 @@ const styles = StyleSheet.create({
   map: { flex: 1 },
   filterOverlay: { 
     position: 'absolute', 
-    top: Platform.OS === 'ios' ? 100 : 80, 
+    top: Platform.OS === 'ios' ? 110 : 90, 
     left: 0, 
     right: 0, 
-    zIndex: 5 
+    zIndex: 10 
   },
   filterBar: { paddingHorizontal: spacing.md, gap: 10, paddingBottom: 10 },
   filterChip: { 
@@ -571,27 +600,28 @@ const styles = StyleSheet.create({
   missionCard: { 
     width: CARD_WIDTH, 
     backgroundColor: '#fff', 
-    borderRadius: 16, 
-    padding: spacing.md, 
+    borderRadius: 20, 
     marginRight: CARD_SPACING,
-    elevation: 5,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    borderWidth: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    borderWidth: 1.5,
     borderColor: 'transparent',
+    overflow: 'hidden',
   },
+  cardGradient: { padding: spacing.md, flex: 1 },
   missionCardActive: { borderColor: colors.primaryGreen },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   matchBadge: { backgroundColor: colors.primaryGreen + '15', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   matchTxt: { fontSize: 10, fontWeight: '700', color: colors.primaryGreen },
   distBadge: { fontSize: 11, fontWeight: '600', color: colors.textSecondary },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 4 },
-  cardArea: { fontSize: 12, color: colors.textSecondary, marginBottom: 10 },
-  skillsRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  cardTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, marginBottom: 4 },
+  cardArea: { fontSize: 12, color: colors.textSecondary },
+  skillsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   skillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accentBlue },
-  skillsLabel: { fontSize: 10, color: colors.textSecondary, fontWeight: '500' },
+  skillsLabel: { fontSize: 10, color: colors.textSecondary, fontWeight: '600' },
   customMarker: { 
     backgroundColor: colors.primaryGreen, 
     width: 32, height: 32, // More compact
@@ -708,7 +738,7 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, height: 30, backgroundColor: '#ddd' },
   navBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   navBtnTxt: { fontSize: 14, fontWeight: '700', color: colors.primaryGreen },
-  detailScroll: { maxHeight: 250 },
+  detailScroll: { flex: 1 },
   sectionHeader: { fontSize: 11, fontWeight: '800', color: colors.textSecondary, letterSpacing: 1, marginBottom: 10, marginTop: 5 },
   aiReasoning: { fontSize: 13, color: colors.textSecondary, lineHeight: 20, marginBottom: 15, fontStyle: 'italic' },
   locationDetailRow: {

@@ -23,26 +23,28 @@ export const GradientBackground = ({
           colors: ['#FF8C42', '#FFFFFF'] as const,
           locations: [0, 1] as const,
           isHeaderOnly: true,
+          headerHeight: 220,
         };
       case 'light':
         return {
-          colors: ['#FFFFFF', '#2E7D3220'] as const,
+          colors: ['#FFFFFF', '#E8F5E9'] as const,
           locations: [0, 1] as const,
           isHeaderOnly: false,
         };
       case 'onboarding':
         return {
-          colors: ['#FFE0B2', '#FFFFFF', '#C8E6C9'] as const, // More visible tricolor shades
+          colors: ['#FFF3E0', '#FFFFFF', '#E8F5E9'] as const,
           locations: [0, 0.5, 1] as const,
           isHeaderOnly: false,
         };
       case 'auth':
       default:
         return {
-          colors: ['#FF8C42', '#FFFFFF', '#FFFFFF', '#2E7D32'] as const,
-          locations: [0, 0.4, 0.6, 1] as const,
+          colors: ['#FF8C42', '#FFFFFF', '#FFFFFF', '#138808'] as const,
+          locations: [0, 0.35, 0.65, 1] as const,
           isHeaderOnly: false,
         };
+
     }
   };
 
@@ -54,11 +56,12 @@ export const GradientBackground = ({
         <LinearGradient
           colors={config.colors}
           locations={config.locations}
-          style={styles.headerGradient}
+          style={[styles.headerGradient, config.headerHeight ? { height: config.headerHeight } : {}]}
         />
         {showChakra && <AshokaChakra />}
         {children}
       </View>
+
     );
   }
 

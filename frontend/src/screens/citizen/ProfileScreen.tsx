@@ -1,16 +1,19 @@
 import React from 'react';
 import { ScrollView, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { AppHeader, UserAvatar, PrimaryButton } from '../../components';
+import { AppHeader, UserAvatar, PrimaryButton, DynamicText } from '../../components';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { useAuthStore } from '../../services/store/useAuthStore';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useLanguage } from '../../context/LanguageContext';
+import { LanguageToggle } from '../../components/common/LanguageToggle';
 
 export const ProfileScreen = () => {
-  const logout = useAuthStore((state) => state.logout);
+  const { user, logout } = useAuthStore();
   const navigation = useNavigation<any>();
-  const userName = "Zahid Khan";
+  const { t } = useLanguage();
+  const userName = user?.name || "Citizen";
 
   const renderOption = (icon: any, title: string, subtitle: string, onPress?: () => void) => (
     <TouchableOpacity style={styles.optionItem} onPress={onPress}>
@@ -27,7 +30,7 @@ export const ProfileScreen = () => {
 
   return (
     <View style={styles.container}>
-      <AppHeader title="My Profile" rightIcon="settings" onRightPress={() => {}} />
+      <AppHeader title={t('citizen.profile.title')} rightIcon="settings" onRightPress={() => {}} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.headerArea}>
           <View style={styles.avatarWrapper}>
@@ -36,27 +39,29 @@ export const ProfileScreen = () => {
               <Feather name="edit-2" size={14} color="#FFF" />
             </TouchableOpacity>
           </View>
-          <Text style={[typography.headingMedium, styles.name]}>{userName}</Text>
-          <Text style={styles.roleText}>Verified Citizen • Member since June 2024</Text>
+          <DynamicText text={userName} style={[typography.headingMedium, styles.name]} />
+          <Text style={styles.roleText}>{t('citizen.impactPassport.verifiedCitizen')}</Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Account Settings</Text>
+          <Text style={styles.sectionLabel}>{t('citizen.profile.accountSettings')}</Text>
           <View style={[globalStyles.card, styles.card]}>
-            {renderOption('user', 'Personal Details', 'Email, Phone number, Address')}
+            {renderOption('user', t('citizen.profile.personalDetails'), t('citizen.profile.personalDetailsSub'))}
             <View style={styles.separator} />
-            {renderOption('lock', 'Privacy & Security', 'Change password, Biometrics')}
+            {renderOption('lock', t('citizen.profile.privacySecurity'), t('citizen.profile.privacySecuritySub'))}
             <View style={styles.separator} />
-            {renderOption('bell', 'Notifications', 'Push alerts, SMS preferences')}
+            {renderOption('bell', t('citizen.profile.notifications'), t('citizen.profile.notificationsSub'))}
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Community</Text>
+          <Text style={styles.sectionLabel}>{t('citizen.profile.community')}</Text>
           <View style={[globalStyles.card, styles.card]}>
-            {renderOption('life-buoy', 'Support Center', 'Help desk, FAQs, Tutorials')}
+            {renderOption('life-buoy', t('citizen.profile.supportCenter'), t('citizen.profile.supportCenterSub'))}
             <View style={styles.separator} />
-            {renderOption('shield', 'Guidelines', 'Community standards, Safety')}
+            {renderOption('shield', t('citizen.profile.guidelines'), t('citizen.profile.guidelinesSub'))}
+            <View style={styles.separator} />
+            {renderOption('maximize', t('volunteer.recognition.verifyCertificate'), t('volunteer.recognition.verifySubtitle'), () => navigation.navigate('VerifyCertificate'))}
           </View>
         </View>
 
@@ -72,29 +77,40 @@ export const ProfileScreen = () => {
               <Ionicons name="heart" size={24} color={colors.primaryGreen} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.volunteerTitle}>Become a Volunteer</Text>
-              <Text style={styles.volunteerSub}>Support your community and join an NGO to make a real difference.</Text>
+              <Text style={styles.volunteerTitle}>{t('citizen.profile.becomeVolunteer')}</Text>
+              <Text style={styles.volunteerSub}>{t('citizen.profile.becomeVolunteerSub')}</Text>
             </View>
             <TouchableOpacity 
               style={styles.applyBtn}
               onPress={() => navigation.navigate('VolunteerApplication')}
             >
-              <Text style={styles.applyBtnText}>Apply Now</Text>
+              <Text style={styles.applyBtnText}>{t('citizen.profile.applyNow')}</Text>
               <Feather name="arrow-right" size={16} color={colors.primaryGreen} />
             </TouchableOpacity>
           </LinearGradient>
         </View>
         
+        {/* Language Settings */}
+        <View style={[styles.section]}>
+          <Text style={styles.sectionLabel}>{t('citizen.profile.languageSettings')}</Text>
+          <View style={[globalStyles.card, styles.card, { padding: spacing.md }]}>
+            <Text style={[typography.captionText, { color: colors.textSecondary, marginBottom: spacing.sm }]}>
+              {t('citizen.profile.switchLanguage')}
+            </Text>
+            <LanguageToggle />
+          </View>
+        </View>
+
         <TouchableOpacity 
           style={styles.logoutBtn} 
           onPress={logout}
           activeOpacity={0.8}
         >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={styles.logoutText}>Sign Out from App</Text>
+          <Text style={styles.logoutText}>{t('auth.signOut')}</Text>
         </TouchableOpacity>
 
-        <Text style={styles.versionText}>SevaSetu v1.0.4 (Beta)</Text>
+        <Text style={styles.versionText}>{t('common.version')}</Text>
       </ScrollView>
     </View>
   );

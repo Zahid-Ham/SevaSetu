@@ -21,6 +21,17 @@ MAX_FATIGUE_SCORE = 5   # Above this → volunteer is "fatigued" and penalised
 
 
 # ─────────────────────────────────────────────
+#  Helpers
+# ─────────────────────────────────────────────
+
+def _get_text(val) -> str:
+    """Safely extracts a string from a bilingual dict or returns as-is."""
+    if isinstance(val, dict):
+        return val.get("en", "")
+    return str(val) if val is not None else ""
+
+
+# ─────────────────────────────────────────────
 #  Main public interface
 # ─────────────────────────────────────────────
 
@@ -43,7 +54,7 @@ def run_auto_assignment(
     scored = []
 
     required_skills: list[str] = event.get("required_skills", [])
-    event_area: str = event.get("area", "").lower()
+    event_area: str = _get_text(event.get("area", "")).lower()
     event_start: str = event.get("predicted_date_start", "")
     event_end: str = event.get("predicted_date_end", "")
 
@@ -76,7 +87,7 @@ def run_auto_assignment(
             event_start=event_start,
             event_end=event_end,
             event_area=event_area,
-            volunteer_area=volunteer.get("area", ""),
+            volunteer_area=_get_text(volunteer.get("area", "")),
             volunteer_fatigue=volunteer.get("fatigue_score", 0)
         )
 
@@ -84,7 +95,7 @@ def run_auto_assignment(
             "volunteer_id": volunteer.get("id", volunteer.get("volunteer_id", "")),
             "volunteer_name": volunteer.get("name", "Unknown"),
             "volunteer_skills": volunteer.get("skills", []),
-            "volunteer_area": volunteer.get("area", ""),
+            "volunteer_area": _get_text(volunteer.get("area", "")),
             "match_score": round(score, 3),
             "score_breakdown": breakdown,
             "ai_reasoning": reasoning,
@@ -97,9 +108,10 @@ def run_auto_assignment(
             "event_longitude": event.get("longitude"),
             "event_geofence_radius": event.get("geofence_radius"),
             "event_description": event.get("description", ""),
-            "event_area": event.get("area", "TBD"),
+            "event_area": _get_text(event.get("area", "TBD")),
             "status": "pending",
             "is_fallback": False,
+            "collection": "assignments", # Added for DynamicText persistence
         })
 
     # Sort by match score descending
@@ -204,8 +216,8 @@ def _area_match(volunteer_area: str, event_area: str) -> float:
     """Exact or partial area string match."""
     if not volunteer_area or not event_area:
         return 0.5
-    vol = volunteer_area.lower().strip()
-    evt = event_area.lower().strip()
+    vol = _get_text(volunteer_area).lower().strip()
+    evt = _get_text(event_area).lower().strip()
     if vol == evt:
         return 1.0
     # Partial match (same city / district keyword)
@@ -254,6 +266,9 @@ def generate_ai_reasoning(
     Generates a human-readable string explaining why a volunteer was matched.
     Commonly shared between Push and Pull models.
     """
+    event_area = _get_text(event_area)
+    volunteer_area = _get_text(volunteer_area)
+    
     parts = []
     
     # Skills

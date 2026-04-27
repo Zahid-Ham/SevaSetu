@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'; // Refresh: 2026-04-23 19:40
 import {
   View, StyleSheet, Text, Image, ScrollView, TextInput,
   TouchableOpacity, RefreshControl, Animated, Easing, Alert, ActivityIndicator,
@@ -10,11 +10,64 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import { AppHeader, PrimaryButton, IconButton, ConfettiOverlay, FullImageViewer } from '../../components';
+import { AppHeader, PrimaryButton, IconButton, ConfettiOverlay, FullImageViewer, DynamicText } from '../../components';
 import { ShimmerCardList } from '../../components/common/SkeletonCard';
 import { colors, spacing, typography } from '../../theme';
 import { API_BASE_URL } from '../../config/apiConfig';
 import { FieldReportScreen } from './FieldReportScreen';
+import { useLanguage } from '../../context/LanguageContext';
+import { getBilingualText, getBilingualArray, BilingualValue } from '../../utils/bilingualHelpers';
+import { useAuthStore } from '../../services/store/useAuthStore';
+
+
+// ─── Sub-components ────────────────────────────────────────────────────────
+const AnimatedWeekRow = React.memo(({ step, weekStart, weekEnd, index }: { step: string; weekStart: number; weekEnd: number; index: number }) => {
+  const { t } = useLanguage();
+  const animValue = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(animValue, {
+      toValue: 1, duration: 600, delay: index * 150, useNativeDriver: true, easing: Easing.out(Easing.cubic)
+    }).start();
+  }, [animValue]);
+  const translateY = animValue.interpolate({ inputRange: [0, 1], outputRange: [25, 0] });
+  const opacity = animValue;
+  return (
+    <Animated.View style={[styles.weekRow, { opacity, transform: [{ translateY }] }]}>
+      <View style={[styles.weekBadge, { backgroundColor: '#1976D2' }]}>
+        <Text style={styles.weekBadgeText}>{t('volunteer.scan.week')} {weekStart}–{weekEnd}</Text>
+      </View>
+      <View style={styles.weekContent}>
+        <DynamicText style={styles.stepText} text={step} />
+      </View>
+    </Animated.View>
+  );
+});
+
+const AnimatedTimelineBtn = React.memo(({ onPress }: { onPress: () => void }) => {
+  const { t } = useLanguage();
+  const translateX = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(translateX, { toValue: 8, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(translateX, { toValue: 0, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) })
+      ])
+    ).start();
+  }, [translateX]);
+  return (
+    <TouchableOpacity style={styles.timelineDetailBtn} onPress={onPress} activeOpacity={0.7}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 }}>
+        <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#1976D215', justifyContent: 'center', alignItems: 'center' }}>
+          <Feather name="calendar" size={14} color="#1976D2" />
+        </View>
+        <Text style={styles.timelineDetailText}>{t('volunteer.scan.timelineDetailBtn')}</Text>
+      </View>
+      <Animated.View style={{ transform: [{ translateX }] }}>
+        <Feather name="chevron-right" size={16} color="#1976D2" />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ParsedData = {
@@ -24,29 +77,29 @@ type ParsedData = {
   precise_location?: string;
   gps_coordinates?: string;
   demographic_tally?: number;
-  executive_summary?: string;
-  primary_category?: string;
-  sub_category?: string;
-  problem_status?: string;
-  duration_of_problem?: string;
-  urgency_level?: string;
-  service_status?: string;
+  executive_summary?: BilingualValue;
+  primary_category?: BilingualValue;
+  sub_category?: BilingualValue;
+  problem_status?: BilingualValue;
+  duration_of_problem?: BilingualValue;
+  urgency_level?: BilingualValue;
+  service_status?: BilingualValue;
   severity_score?: number;
-  severity_reason?: string;
+  severity_reason?: BilingualValue;
   population_affected?: number;
-  vulnerable_group?: string;
-  vulnerability_flag?: string;
-  secondary_impact?: string;
-  expected_resolution_timeline?: string[];
-  detailed_resolution_steps?: string[];
+  vulnerable_group?: BilingualValue;
+  vulnerability_flag?: BilingualValue;
+  secondary_impact?: BilingualValue;
+  expected_resolution_timeline?: BilingualValue[];
+  detailed_resolution_steps?: BilingualValue[];
   follow_up_date?: string;
   status?: string;
-  govt_scheme_applicable?: string;
-  ai_recommended_actions?: string;
-  previous_complaints_insights?: string;
-  key_complaints?: string[];
-  sentiment?: string;
-  key_quote?: string;
+  govt_scheme_applicable?: BilingualValue;
+  ai_recommended_actions?: BilingualValue;
+  previous_complaints_insights?: BilingualValue;
+  key_complaints?: BilingualValue[];
+  sentiment?: BilingualValue;
+  key_quote?: BilingualValue;
   photo_url?: string;
   photo_public_id?: string;
   audio_url?: string;
@@ -58,8 +111,8 @@ type ParsedData = {
     public_id?: string;
     name?: string;
   }[];
-  description?: string;
-  auto_category?: string;
+  description?: BilingualValue;
+  auto_category?: BilingualValue;
   issue_type?: string;
 };
 
@@ -71,31 +124,31 @@ type Report = {
   phone?: string;
   precise_location?: string;
   gps_coordinates?: string;
-  executive_summary?: string;
-  primary_category?: string;
-  sub_category?: string;
-  problem_status?: string;
-  duration_of_problem?: string;
-  urgency_level?: string;
-  service_status?: string;
+  executive_summary?: BilingualValue;
+  primary_category?: BilingualValue;
+  sub_category?: BilingualValue;
+  problem_status?: BilingualValue;
+  duration_of_problem?: BilingualValue;
+  urgency_level?: BilingualValue;
+  service_status?: BilingualValue;
   severity_score?: number;
-  severity_reason?: string;
+  severity_reason?: BilingualValue;
   population_affected?: number;
-  vulnerable_group?: string;
-  vulnerability_flag?: string;
-  secondary_impact?: string;
-  expected_resolution_timeline?: string[];
-  detailed_resolution_steps?: string[];
+  vulnerable_group?: BilingualValue;
+  vulnerability_flag?: BilingualValue;
+  secondary_impact?: BilingualValue;
+  expected_resolution_timeline?: BilingualValue[];
+  detailed_resolution_steps?: BilingualValue[];
   follow_up_date?: string;
   status?: string;
-  govt_scheme_applicable?: string;
-  ai_recommended_actions?: string;
-  previous_complaints_insights?: string;
-  key_complaints?: string[];
-  sentiment?: string;
-  key_quote?: string;
-  description?: string;
-  auto_category?: string;
+  govt_scheme_applicable?: BilingualValue;
+  ai_recommended_actions?: BilingualValue;
+  previous_complaints_insights?: BilingualValue;
+  key_complaints?: BilingualValue[];
+  sentiment?: BilingualValue;
+  key_quote?: BilingualValue;
+  description?: BilingualValue;
+  auto_category?: BilingualValue;
   report_source?: string;
   location?: string;
   issue_type?: string;
@@ -143,24 +196,25 @@ const formatDate = (iso: string) => {
 const getUrgencyConfig = (level?: string) => {
   const l = (level || '').toLowerCase();
   if (l.includes('critical') || l.includes('high') || l.includes('extreme'))
-    return { color: '#E53935', bg: '#FFEBEE', label: level || 'Critical', pulse: true };
+    return { color: '#E53935', bg: '#FFEBEE', label: level || 'Critical', key: 'urgent', pulse: true };
   if (l.includes('medium') || l.includes('moderate'))
-    return { color: '#F57C00', bg: '#FFF3E0', label: level || 'Moderate', pulse: false };
-  return { color: '#388E3C', bg: '#E8F5E9', label: level || 'Low', pulse: false };
+    return { color: '#F57C00', bg: '#FFF3E0', label: level || 'Moderate', key: 'medium', pulse: false };
+  return { color: '#388E3C', bg: '#E8F5E9', label: level || 'Low', key: 'low', pulse: false };
 };
 
 const getSeverityConfig = (score?: number) => {
-  if (!score) return { color: '#9E9E9E', label: 'N/A' };
-  if (score >= 8) return { color: '#E53935', label: 'Critical' };
-  if (score >= 6) return { color: '#F57C00', label: 'High' };
-  if (score >= 4) return { color: '#FBC02D', label: 'Moderate' };
-  return { color: '#388E3C', label: 'Low' };
+  if (!score) return { color: '#9E9E9E', label: 'N/A', key: '' };
+  if (score >= 8) return { color: '#E53935', label: 'Critical', key: 'urgent' };
+  if (score >= 6) return { color: '#F57C00', label: 'High', key: 'urgent' };
+  if (score >= 4) return { color: '#FBC02D', label: 'Moderate', key: 'medium' };
+  return { color: '#388E3C', label: 'Low', key: 'low' };
 };
 
 // ─── Components ──────────────────────────────────────────────────────────────
 
 // Pulsing urgency badge
 const UrgencyBadge = ({ level }: { level?: string }) => {
+  const { t } = useLanguage();
   const cfg = getUrgencyConfig(level);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -179,13 +233,16 @@ const UrgencyBadge = ({ level }: { level?: string }) => {
       { backgroundColor: cfg.bg, borderColor: cfg.color + '80', transform: [{ scale: pulseAnim }] }
     ]}>
       <View style={[styles.urgencyDot, { backgroundColor: cfg.color }]} />
-      <Text style={[styles.urgencyBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
+      <Text style={[styles.urgencyBadgeText, { color: cfg.color }]}>
+        {(cfg.key && t(`supervisor.crisisHeatmap.${cfg.key}`) !== `supervisor.crisisHeatmap.${cfg.key}`) ? t(`supervisor.crisisHeatmap.${cfg.key}`) : cfg.label}
+      </Text>
     </Animated.View>
   );
 };
 
 // Severity score gauge bar
 const SeverityGauge = ({ score, onInfoPress }: { score?: number; onInfoPress: () => void }) => {
+  const { t } = useLanguage();
   const cfg = getSeverityConfig(score);
   const barAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -204,7 +261,9 @@ const SeverityGauge = ({ score, onInfoPress }: { score?: number; onInfoPress: ()
           <Text style={styles.gaugeScore}>{score !== undefined ? score : '—'}</Text>
           <Text style={styles.gaugeTotal}>/10</Text>
           <View style={[styles.gaugeLabelBadge, { backgroundColor: cfg.color + '20', borderColor: cfg.color + '50' }]}>
-            <Text style={[styles.gaugeLabelText, { color: cfg.color }]}>{cfg.label}</Text>
+            <Text style={[styles.gaugeLabelText, { color: cfg.color }]}>
+              {cfg.key && t(`supervisor.crisisHeatmap.${cfg.key}`) !== `supervisor.crisisHeatmap.${cfg.key}` ? t(`supervisor.crisisHeatmap.${cfg.key}`) : cfg.label}
+            </Text>
           </View>
         </View>
         <TouchableOpacity onPress={onInfoPress} style={[styles.infoBadge, { backgroundColor: '#E5393515', borderColor: '#E5393540' }]}>
@@ -223,15 +282,38 @@ const SeverityGauge = ({ score, onInfoPress }: { score?: number; onInfoPress: ()
   );
 };
 
-// Section header with icon stripe
-const SectionHeader = ({ number, title, icon, accent = colors.primaryGreen }: { number: string; title: string; icon: string; accent?: string }) => (
-  <View style={[styles.sectionHeader, { borderLeftColor: accent }]}>
-    <View style={[styles.sectionHeaderIcon, { backgroundColor: accent + '18' }]}>
-      <Feather name={icon as any} size={14} color={accent} />
+const SectionHeader = ({ number, title, icon, accent = colors.primaryGreen }: { number: string; title: string; icon: string; accent?: string }) => {
+  const { t } = useLanguage();
+  return (
+    <View style={[styles.sectionHeader, { borderLeftColor: accent }]}>
+      <View style={[styles.sectionHeaderIcon, { backgroundColor: accent + '18' }]}>
+        <Feather name={icon as any} size={14} color={accent} />
+      </View>
+      <Text style={[styles.sectionHeaderText, { color: accent }]}>{number ? `${number}. ` : ''}{t(`volunteer.scan.${title}`) !== `volunteer.scan.${title}` ? t(`volunteer.scan.${title}`).toUpperCase() : title.toUpperCase()}</Text>
     </View>
-    <Text style={[styles.sectionHeaderText, { color: accent }]}>{number}. {title.toUpperCase()}</Text>
-  </View>
-);
+  );
+};
+
+const DetailRow = ({ icon, label, value, color = colors.primaryGreen, collection, docId, field }: { icon: string; label: string; value: string | null | undefined; color?: string; collection?: string; docId?: string; field?: string }) => {
+  const { t } = useLanguage();
+  return (
+    <View style={styles.detailRow}>
+      <View style={[styles.detailIconWrap, { backgroundColor: color + '15' }]}>
+        <Feather name={icon as any} size={16} color={color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <DynamicText 
+          style={styles.detailValue} 
+          text={value || t('common.n/a')} 
+          collection={collection}
+          docId={docId}
+          field={field}
+        />
+      </View>
+    </View>
+  );
+};
 
 const DetailBulletList = ({ text, accent = colors.primaryGreen }: { text?: string; accent?: string }) => {
   if (!text) return <Text style={styles.detailValue}>—</Text>;
@@ -305,38 +387,55 @@ const DetailBulletList = ({ text, accent = colors.primaryGreen }: { text?: strin
 const AudioPlayer = ({ url }: { url: string }) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(1);
 
   const playSound = async () => {
     try {
       if (sound) {
-        if (isPlaying) {
-          await sound.pauseAsync();
-          setIsPlaying(false);
-        } else {
-          await sound.playAsync();
-          setIsPlaying(true);
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) {
+          if (status.isPlaying) {
+            await sound.pauseAsync();
+            setIsPlaying(false);
+          } else {
+            // If it finished, reset to 0 before playing
+            if (status.positionMillis >= (status.durationMillis || 0)) {
+              await sound.setPositionAsync(0);
+            }
+            await sound.playAsync();
+            setIsPlaying(true);
+          }
         }
       } else {
-        // Fix: Use /chat/serve-file proxy for Cloudinary URLs to bypass CDN blocks
         let fullUrl = url;
         if (url.startsWith('https://res.cloudinary.com')) {
           const publicId = url.split('/upload/')[1].split('.').slice(0, -1).join('.');
           const extension = url.split('.').pop();
           fullUrl = `${API_BASE_URL}/chat/serve-file?public_id=${publicId}&extension=${extension}`;
-          console.log('[AudioPlayer] Proxying Cloudinary URL:', fullUrl);
-        } else if (!url.startsWith('file://')) {
+        } else if (!url.startsWith('file://') && !url.startsWith('http')) {
           fullUrl = API_BASE_URL + url;
         }
 
         const { sound: newSound } = await Audio.Sound.createAsync(
           { uri: fullUrl },
-          { shouldPlay: true }
+          { shouldPlay: true, isLooping: false }
         );
+        
         newSound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded && status.didJustFinish) setIsPlaying(false);
+          if (status.isLoaded) {
+            setPosition(status.positionMillis);
+            setDuration(status.durationMillis || 1);
+            setIsPlaying(status.isPlaying);
+            
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+            }
+          }
         });
+        
         setSound(newSound);
-        setIsPlaying(true);
       }
     } catch (e) {
       console.log('Error playing sound', e);
@@ -347,29 +446,39 @@ const AudioPlayer = ({ url }: { url: string }) => {
     return sound ? () => { sound.unloadAsync(); } : undefined;
   }, [sound]);
 
+  const progress = position / duration;
+
   return (
-    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: spacing.md, borderRadius: 12, borderWidth: 1, borderColor: colors.primaryGreen + '40', marginTop: spacing.xs, marginBottom: spacing.md }} onPress={playSound}>
-      <Feather name={isPlaying ? "pause-circle" : "play-circle"} size={24} color={colors.primaryGreen} />
-      <Text style={{ ...typography.bodyText, color: colors.primaryGreen, marginLeft: spacing.sm, fontWeight: '700' }}>
-        {isPlaying ? "Playing Voice Note..." : "Play Voice Note"}
+    <View style={styles.premiumAudioContainer}>
+      <TouchableOpacity onPress={playSound} style={styles.audioPlayBtn}>
+        <Feather name={isPlaying ? "pause" : "play"} size={20} color="#fff" />
+      </TouchableOpacity>
+      <View style={{ flex: 1, height: 4, backgroundColor: '#E0E0E0', borderRadius: 2, overflow: 'hidden' }}>
+        <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: colors.primaryGreen }} />
+      </View>
+      <Text style={{ fontSize: 10, color: colors.textSecondary, marginLeft: 8, fontFamily: 'monospace' }}>
+        {Math.floor(position / 1000)}s / {Math.floor(duration / 1000)}s
       </Text>
-    </TouchableOpacity>
+    </View>
   );
 };
 
 // ─── AI Analyzing Steps ──────────────────────────────────────────────────────
-const ANALYSIS_STEPS = [
-  { icon: '📸', label: 'Extracting document...' },
+const ANALYSIS_STEPS = (t: any) => [
+  { icon: '📸', label: t('volunteer.scan.extracting') || 'Extracting document...' },
   { icon: '🔍', label: 'Detecting handwriting & fields...' },
   { icon: '🤖', label: 'AI analyzing 20+ parameters...' },
-  { icon: '✅', label: 'Preparing your comprehensive report...' },
+  { icon: '✅', label: t('volunteer.scan.analyzing') || 'Preparing your comprehensive report...' },
 ];
 
 const AnalyzingScreen = ({ fileUris }: { fileUris: string[] }) => {
+  const { t } = useLanguage();
   const [stepIndex, setStepIndex] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const stepFade = useRef(new Animated.Value(1)).current;
+  
+  const steps = ANALYSIS_STEPS(t);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -386,13 +495,13 @@ const AnalyzingScreen = ({ fileUris }: { fileUris: string[] }) => {
         Animated.timing(stepFade, { toValue: 0, duration: 200, useNativeDriver: true }),
         Animated.timing(stepFade, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start();
-      setStepIndex(prev => (prev + 1) % ANALYSIS_STEPS.length);
+      setStepIndex(prev => (prev + 1) % steps.length);
     }, 1500);
 
     return () => { pulse.stop(); clearInterval(stepTimer); };
   }, []);
 
-  const currentStep = ANALYSIS_STEPS[stepIndex];
+  const currentStep = steps[stepIndex];
   const isMultiple = fileUris.length > 1;
 
   return (
@@ -414,6 +523,8 @@ const AnalyzingScreen = ({ fileUris }: { fileUris: string[] }) => {
 
 export const ScanSurveyScreen = () => {
   const route = useRoute<any>();
+  const { t, language } = useLanguage();
+  const { user } = useAuthStore();
   const [mainView, setMainView] = useState<'scan_home' | 'field_report' | 'field_report_viewer'>('scan_home');
   const [savedFieldReportData, setSavedFieldReportData] = useState<any>(null);
   const [mode, setMode] = useState<ScreenMode>('idle');
@@ -429,6 +540,7 @@ export const ScanSurveyScreen = () => {
   const [loadingReports, setLoadingReports] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [reportSourceFilter, setReportSourceFilter] = useState<'all' | 'volunteer' | 'citizen'>('volunteer');
 
   // Bottom Sheet
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -436,9 +548,14 @@ export const ScanSurveyScreen = () => {
   const [showTimelineModal, setShowTimelineModal] = useState(false);
   const [infoPopup, setInfoPopup] = useState<{ title: string; reason: string; accent?: string } | null>(null);
 
+  const timelineSteps = useMemo(() => {
+    if (!displayedReport?.detailed_resolution_steps) return [];
+    return getBilingualArray(displayedReport.detailed_resolution_steps, language);
+  }, [displayedReport?.detailed_resolution_steps, language]);
+
   // Full Image Viewer
   const [viewerVisible, setViewerVisible] = useState(false);
-  const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [viewerUri, setViewerUri] = useState<string | null | undefined>(null);
 
   useFocusEffect(useCallback(() => { fetchReports(); }, []));
 
@@ -489,6 +606,22 @@ export const ScanSurveyScreen = () => {
         }
       ]
     );
+  };
+
+  const handleResolveReport = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/reports/${id}/resolve`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        Alert.alert('Success', 'Report marked as Resolved. It will now appear in the citizen\'s Aid History.');
+        bottomSheetRef.current?.close();
+        fetchReports();
+      } else {
+        Alert.alert('Error', data.detail || 'Failed to resolve');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to resolve report');
+    }
   };
 
   // ── Actions ──
@@ -553,7 +686,7 @@ export const ScanSurveyScreen = () => {
       const currentData = currentFileNode.parsed;
       const payload = {
         ...currentData,
-        volunteer_id: 'vol_123',
+        volunteer_id: user?.id || undefined,
         report_source: 'scan',
         photo_url: currentFileNode.url,
         photo_public_id: currentFileNode.publicId
@@ -623,19 +756,19 @@ export const ScanSurveyScreen = () => {
             <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
               <Feather name="check" size={30} color="#fff" />
             </View>
-            <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 0.5 }}>Report Ready</Text>
+            <Text style={{ color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 0.5 }}>{t('volunteer.scan.reportReady')}</Text>
             <Text style={{ color: C.orange, fontSize: 14, fontWeight: '700', marginTop: 4 }}>{fr.report_type}</Text>
             <View style={{ flexDirection: 'row', gap: 20, marginTop: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                 <Feather name="map-pin" size={12} color="#aaa" />
-                <Text style={{ color: '#ccc', fontSize: 11, fontWeight: '600' }}>{fr.location_summary}</Text>
+                <DynamicText style={{ color: '#ccc', fontSize: 11, fontWeight: '600' }} text={fr.location_summary} collection="field_reports" docId={fr.id} field="location_summary" />
               </View>
             </View>
             <View style={{ flexDirection: 'row', marginTop: 18, gap: 10, width: '100%' }}>
               {[
-                { num: fr.media_library?.length || fr.evidence_breakdown?.length || 0, label: 'Evidence', color: C.blue },
-                { num: fr.community_voice?.length || 0, label: 'Surveyed', color: C.violet },
-                { num: fr.key_findings?.length || 0, label: 'Findings', color: C.orange },
+                { num: fr.media_library?.length || fr.evidence_breakdown?.length || 0, label: t('volunteer.scan.evidence'), color: C.blue },
+                { num: fr.community_voice?.length || 0, label: t('volunteer.scan.surveyed'), color: C.violet },
+                { num: fr.key_findings?.length || 0, label: t('volunteer.scan.findings'), color: C.orange },
               ].map((s, i) => (
                 <View key={i} style={{ flex: 1, backgroundColor: s.color + '15', borderRadius: 14, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: s.color + '30' }}>
                   <Text style={{ color: s.color, fontSize: 22, fontWeight: '900' }}>{s.num}</Text>
@@ -652,18 +785,18 @@ export const ScanSurveyScreen = () => {
                 <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.orange, justifyContent: 'center', alignItems: 'center' }}>
                   <Feather name="file-text" size={13} color="#fff" />
                 </View>
-                <Text style={{ fontSize: 13, fontWeight: '800', color: C.orange, textTransform: 'uppercase', letterSpacing: 0.5 }}>Executive Summary</Text>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.orange, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.executiveSummary')}</Text>
               </View>
               <View style={{ padding: 16 }}>
                 {Array.isArray(fr.executive_summary) ? (
                   fr.executive_summary.map((b: string, i: number) => (
                     <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 }}>
                       <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.orange, marginTop: 6 }} />
-                      <Text style={{ flex: 1, fontSize: 13, lineHeight: 20, color: '#444' }}>{b}</Text>
+                      <DynamicText style={{ flex: 1, fontSize: 13, lineHeight: 20, color: '#444' }} text={b} collection="field_reports" docId={fr.id} field={`executive_summary_${i}`} />
                     </View>
                   ))
                 ) : (
-                  <Text style={{ fontSize: 13, lineHeight: 20, color: '#444' }}>{fr.executive_summary}</Text>
+                  <DynamicText style={{ fontSize: 13, lineHeight: 20, color: '#444' }} text={fr.executive_summary} collection="field_reports" docId={fr.id} field="executive_summary" />
                 )}
               </View>
             </View>
@@ -675,10 +808,10 @@ export const ScanSurveyScreen = () => {
                   <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.blue, justifyContent: 'center', alignItems: 'center' }}>
                     <Feather name="search" size={13} color="#fff" />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5 }}>Evidence Analysis</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.blue, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.evidenceAnalysis')}</Text>
                   <View style={{ flex: 1 }} />
                   <View style={{ backgroundColor: C.blue + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
-                    <Text style={{ fontSize: 10, fontWeight: '800', color: C.blue }}>{fr.evidence_breakdown.length} items</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: C.blue }}>{fr.evidence_breakdown.length} {t('volunteer.scan.items')}</Text>
                   </View>
                 </View>
                 <View style={{ padding: 12 }}>
@@ -693,18 +826,18 @@ export const ScanSurveyScreen = () => {
                             <Feather name={getEvIcon(evType) as any} size={16} color={evColor} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontWeight: '700', fontSize: 13, color: '#333' }}>{ev.evidence_label || ev.evidence_type}</Text>
-                            <Text style={{ fontSize: 9, color: evColor, textTransform: 'uppercase', fontWeight: '700', letterSpacing: 0.5 }}>{ev.evidence_type}</Text>
+                            <DynamicText style={{ fontWeight: '700', fontSize: 13, color: '#333' }} text={ev.evidence_label || ev.evidence_type} collection="field_reports" docId={fr.id} field={`evidence_label_${i}`} />
+                            <DynamicText style={{ fontSize: 9, color: evColor, textTransform: 'uppercase', fontWeight: '700', letterSpacing: 0.5 }} text={ev.evidence_type} collection="field_reports" docId={fr.id} field={`evidence_type_${i}`} />
                           </View>
                           {mediaUrl && (
                             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.blue + '12', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }} onPress={() => Linking.openURL(mediaUrl)}>
                               <Feather name="eye" size={12} color={C.blue} />
-                              <Text style={{ fontSize: 11, color: C.blue, fontWeight: '700' }}>View</Text>
+                              <Text style={{ fontSize: 11, color: C.blue, fontWeight: '700' }}>{t('volunteer.scan.view')}</Text>
                             </TouchableOpacity>
                           )}
                         </View>
                         {ev.three_line_extraction?.map((line: string, j: number) => (
-                          <Text key={j} style={{ fontSize: 12, color: '#555', lineHeight: 18, paddingLeft: 42, marginBottom: 3 }}>• {line}</Text>
+                          <DynamicText key={j} style={{ fontSize: 12, color: '#555', lineHeight: 18, paddingLeft: 42, marginBottom: 3 }} text={`• ${line}`} collection="field_reports" docId={fr.id} field={`evidence_extraction_${i}_${j}`} />
                         ))}
                       </View>
                     );
@@ -720,18 +853,18 @@ export const ScanSurveyScreen = () => {
                   <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center' }}>
                     <Feather name="check-circle" size={13} color="#fff" />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5 }}>Conclusion</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.conclusion')}</Text>
                 </View>
                 <View style={{ padding: 16 }}>
                   {Array.isArray(fr.evidence_conclusion) ? (
                     fr.evidence_conclusion.map((b: string, i: number) => (
-                      <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 }}>
-                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.green, marginTop: 6 }} />
-                        <Text style={{ flex: 1, fontSize: 13, lineHeight: 20, color: '#444' }}>{b}</Text>
-                      </View>
+                        <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 10 }}>
+                          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.green, marginTop: 6 }} />
+                          <DynamicText style={{ flex: 1, fontSize: 13, lineHeight: 20, color: '#444' }} text={b} collection="field_reports" docId={fr.id} field={`conclusion_${i}`} />
+                        </View>
                     ))
                   ) : (
-                    <Text style={{ fontSize: 13, lineHeight: 20, color: '#444' }}>{fr.evidence_conclusion}</Text>
+                    <DynamicText style={{ fontSize: 13, lineHeight: 20, color: '#444' }} text={fr.evidence_conclusion} collection="field_reports" docId={fr.id} field="conclusion" />
                   )}
                 </View>
               </View>
@@ -744,7 +877,7 @@ export const ScanSurveyScreen = () => {
                   <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.yellow, justifyContent: 'center', alignItems: 'center' }}>
                     <Feather name="zap" size={13} color="#fff" />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', textTransform: 'uppercase', letterSpacing: 0.5 }}>Key Findings</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.keyFindings')}</Text>
                 </View>
                 <View style={{ padding: 14 }}>
                   {fr.key_findings.map((f: any, i: number) => (
@@ -753,8 +886,8 @@ export const ScanSurveyScreen = () => {
                         <Text style={{ fontSize: 11, fontWeight: '800', color: '#E65100' }}>{i + 1}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '700', fontSize: 13, color: '#333' }}>{f.category}</Text>
-                        <Text style={{ fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 }}>{f.observation}</Text>
+                        <DynamicText style={{ fontWeight: '700', fontSize: 13, color: '#333' }} text={f.category} collection="field_reports" docId={fr.id} field={`finding_category_${i}`} />
+                        <DynamicText style={{ fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 }} text={f.observation} collection="field_reports" docId={fr.id} field={`finding_${i}`} />
                       </View>
                     </View>
                   ))}
@@ -769,7 +902,7 @@ export const ScanSurveyScreen = () => {
                   <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.red, justifyContent: 'center', alignItems: 'center' }}>
                     <Feather name="alert-triangle" size={13} color="#fff" />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.red, textTransform: 'uppercase', letterSpacing: 0.5 }}>Needs Assessment</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.red, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.needsAssessment')}</Text>
                 </View>
                 <View style={{ padding: 12 }}>
                   {fr.needs_assessment.map((n: any, i: number) => {
@@ -777,12 +910,12 @@ export const ScanSurveyScreen = () => {
                     return (
                       <View key={i} style={{ backgroundColor: isCrit ? C.red + '06' : '#f8f9fa', padding: 12, borderRadius: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: isCrit ? C.red : C.teal }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ fontWeight: '700', fontSize: 13, flex: 1, color: '#333' }}>{n.need}</Text>
+                          <DynamicText style={{ fontWeight: '700', fontSize: 13, flex: 1, color: '#333' }} text={n.need} collection="field_reports" docId={fr.id} field={`need_${i}`} />
                           <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: isCrit ? C.red + '15' : C.teal + '15' }}>
                             <Text style={{ fontSize: 10, fontWeight: '800', color: isCrit ? C.red : C.teal }}>{n.severity}</Text>
                           </View>
                         </View>
-                        <Text style={{ fontSize: 12, color: '#666', marginTop: 4, lineHeight: 17 }}>{n.rationale}</Text>
+                        <DynamicText style={{ fontSize: 12, color: '#666', marginTop: 4, lineHeight: 17 }} text={n.rationale} collection="field_reports" docId={fr.id} field={`need_rationale_${i}`} />
                       </View>
                     );
                   })}
@@ -797,7 +930,7 @@ export const ScanSurveyScreen = () => {
                   <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.violet, justifyContent: 'center', alignItems: 'center' }}>
                     <Feather name="message-circle" size={13} color="#fff" />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.violet, textTransform: 'uppercase', letterSpacing: 0.5 }}>Community Voice</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.violet, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.communityVoice')}</Text>
                 </View>
                 <View style={{ padding: 12 }}>
                   {fr.community_voice.map((cv: any, i: number) => (
@@ -806,15 +939,15 @@ export const ScanSurveyScreen = () => {
                         <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: C.violet + '18', justifyContent: 'center', alignItems: 'center' }}>
                           <Feather name="user" size={11} color={C.violet} />
                         </View>
-                        <Text style={{ fontWeight: '700', fontSize: 13, flex: 1, color: '#333' }}>{cv.member}</Text>
+                        <DynamicText style={{ fontWeight: '700', fontSize: 13, flex: 1, color: '#333' }} text={cv.member} collection="field_reports" docId={fr.id} field={`survey_member_${i}`} />
                         {cv.media_captured && (
                           <Text style={{ fontSize: 9, color: C.violet, backgroundColor: C.violet + '12', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, fontWeight: '700', textTransform: 'uppercase' }}>{cv.media_captured}</Text>
                         )}
                       </View>
-                      <Text style={{ fontSize: 13, color: '#555', lineHeight: 18 }}>{cv.summary}</Text>
+                      <DynamicText style={{ fontSize: 13, color: '#555', lineHeight: 18 }} text={cv.summary} collection="field_reports" docId={fr.id} field={`survey_summary_${i}`} />
                       {cv.notable_quote && (
                         <View style={{ backgroundColor: C.violet + '08', borderRadius: 8, padding: 8, marginTop: 6 }}>
-                          <Text style={{ fontSize: 12, color: C.violet, fontStyle: 'italic' }}>"{cv.notable_quote}"</Text>
+                          <DynamicText style={{ fontSize: 12, color: C.violet, fontStyle: 'italic' }} text={`"${cv.notable_quote}"`} collection="field_reports" docId={fr.id} field={`survey_quote_${i}`} />
                         </View>
                       )}
                     </View>
@@ -830,7 +963,7 @@ export const ScanSurveyScreen = () => {
                   <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: C.teal, justifyContent: 'center', alignItems: 'center' }}>
                     <Feather name="arrow-right-circle" size={13} color="#fff" />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.teal, textTransform: 'uppercase', letterSpacing: 0.5 }}>Follow-up Actions</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.teal, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('volunteer.scan.followUpActions')}</Text>
                 </View>
                 <View style={{ padding: 14 }}>
                   {fr.recommended_follow_up.map((item: string, i: number) => (
@@ -838,14 +971,14 @@ export const ScanSurveyScreen = () => {
                       <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: C.teal + '15', justifyContent: 'center', alignItems: 'center', marginTop: 1 }}>
                         <Feather name="chevron-right" size={12} color={C.teal} />
                       </View>
-                      <Text style={{ flex: 1, fontSize: 13, color: '#444', lineHeight: 19 }}>{item}</Text>
+                      <DynamicText style={{ flex: 1, fontSize: 13, color: '#444', lineHeight: 19 }} text={item} collection="field_reports" docId={fr.id} field={`follow_up_${i}`} />
                     </View>
                   ))}
                 </View>
               </View>
             )}
 
-            <PrimaryButton title="Done" onPress={() => { setMainView('scan_home'); setSavedFieldReportData(null); }} style={{ marginVertical: 20 }} />
+            <PrimaryButton title={t('assignments.gotIt')} onPress={() => { setMainView('scan_home'); setSavedFieldReportData(null); }} style={{ marginVertical: 20 }} />
           </View>
         </ScrollView>
       </View>
@@ -901,69 +1034,69 @@ export const ScanSurveyScreen = () => {
 
           {/* Section 1: Who & Where */}
           <View style={styles.premiumCard}>
-            <Text style={styles.formSectionTitle}>1. Who & Where</Text>
-            <FormField label="Citizen Name" value={parsed.citizen_name} onChangeText={(t: string) => updateField('citizen_name', t)} />
-            <FormField label="Precise Location" value={parsed.precise_location} onChangeText={(t: string) => updateField('precise_location', t)} />
+            <Text style={styles.formSectionTitle}>1. {t('volunteer.scan.whoWhere')}</Text>
+            <FormField label={t('volunteer.scan.citizenName')} value={parsed.citizen_name} onChangeText={(t: string) => updateField('citizen_name', t)} />
+            <FormField label={t('volunteer.scan.location')} value={parsed.precise_location} onChangeText={(t: string) => updateField('precise_location', t)} />
             <FormField label="GPS (Auto-extracted)" value={parsed.gps_coordinates} onChangeText={(t: string) => updateField('gps_coordinates', t)} />
           </View>
 
           {/* Section 2: Problem */}
           <View style={styles.premiumCard}>
-            <Text style={styles.formSectionTitle}>2. The Problem</Text>
-            <FormField label="Executive Summary" value={parsed.executive_summary} onChangeText={(t: string) => updateField('executive_summary', t)} multiline />
-            <FormField label="Primary Category" value={parsed.primary_category} onChangeText={(t: string) => updateField('primary_category', t)} />
-            <FormField label="Sub-Category" value={parsed.sub_category} onChangeText={(t: string) => updateField('sub_category', t)} />
-            <FormField label="How long has this problem existed?" value={parsed.duration_of_problem} onChangeText={(t: string) => updateField('duration_of_problem', t)} />
-            <FormField label="Urgency" value={parsed.urgency_level} onChangeText={(t: string) => updateField('urgency_level', t)} />
+            <Text style={styles.formSectionTitle}>2. {t('volunteer.scan.theProblem')}</Text>
+            <FormField label={t('volunteer.scan.executiveSummary')} value={parsed.executive_summary} onChangeText={(t: string) => updateField('executive_summary', t)} multiline />
+            <FormField label={t('volunteer.scan.primaryCategory')} value={parsed.primary_category} onChangeText={(t: string) => updateField('primary_category', t)} />
+            <FormField label={t('volunteer.digitalSurvey.subCategory')} value={parsed.sub_category} onChangeText={(t: string) => updateField('sub_category', t)} />
+            <FormField label={t('volunteer.digitalSurvey.durationOfProblem')} value={parsed.duration_of_problem} onChangeText={(t: string) => updateField('duration_of_problem', t)} />
+            <FormField label={t('volunteer.scan.urgencyLevel')} value={parsed.urgency_level} onChangeText={(t: string) => updateField('urgency_level', t)} />
           </View>
 
           {/* Section 3: Impact */}
           <View style={styles.premiumCard}>
-            <Text style={styles.formSectionTitle}>3. Impact & Severity</Text>
-            <FormField label="Severity Score (AI)" value={parsed.severity_score?.toString()} onChangeText={(t: string) => updateField('severity_score', parseInt(t))} keyboardType="numeric" />
-            <FormField label="Affected Population" value={parsed.population_affected?.toString()} onChangeText={(t: string) => updateField('population_affected', parseInt(t))} keyboardType="numeric" />
-            <FormField label="Most Vulnerable Group affected" value={parsed.vulnerable_group} onChangeText={(t: string) => updateField('vulnerable_group', t)} placeholder="women / children / elderly / disabled" />
+            <Text style={styles.formSectionTitle}>3. {t('volunteer.scan.impactAssessment')}</Text>
+            <FormField label={t('volunteer.scan.severityScore')} value={parsed.severity_score?.toString()} onChangeText={(t: string) => updateField('severity_score', parseInt(t))} keyboardType="numeric" />
+            <FormField label={t('volunteer.scan.populationAffected')} value={parsed.population_affected?.toString()} onChangeText={(t: string) => updateField('population_affected', parseInt(t))} keyboardType="numeric" />
+            <FormField label={t('volunteer.digitalSurvey.vulnerabilityFlag')} value={parsed.vulnerable_group} onChangeText={(t: string) => updateField('vulnerable_group', t)} placeholder="women / children / elderly / disabled" />
           </View>
 
           {/* Section 4: Action & Follow-up */}
           <View style={styles.premiumCard}>
-            <Text style={styles.formSectionTitle}>4. Action & Follow-up</Text>
+            <Text style={styles.formSectionTitle}>4. {t('volunteer.scan.actionFollowUp')}</Text>
             <FormField
-              label="Expected Resolution Timeline (AI)"
+              label={t('volunteer.scan.resolutionTimeline')}
               value={parsed.expected_resolution_timeline?.join('\n')}
               onChangeText={(t: string) => updateField('expected_resolution_timeline', t.split('\n').filter(s => s.trim()))}
               multiline
               placeholder="Phase 1: ...\nPhase 2: ..."
             />
             <FormField
-              label="Detailed Low-Level Steps (AI)"
+              label={t('volunteer.scan.resolutionSteps')}
               value={parsed.detailed_resolution_steps?.join('\n')}
               onChangeText={(t: string) => updateField('detailed_resolution_steps', t.split('\n').filter(s => s.trim()))}
               multiline
               placeholder="Step 1: ...\nStep 2: ..."
             />
-            <FormField label="Government Scheme Applicable" value={parsed.govt_scheme_applicable} onChangeText={(t: string) => updateField('govt_scheme_applicable', t)} />
-            <FormField label="AI Recommended Actions" value={parsed.ai_recommended_actions} onChangeText={(t: string) => updateField('ai_recommended_actions', t)} multiline />
+            <FormField label={t('volunteer.scan.govtScheme')} value={parsed.govt_scheme_applicable} onChangeText={(t: string) => updateField('govt_scheme_applicable', t)} />
+            <FormField label={t('volunteer.scan.aiRecommendations')} value={parsed.ai_recommended_actions} onChangeText={(t: string) => updateField('ai_recommended_actions', t)} multiline />
           </View>
 
           {/* Section 5: Qualitative */}
           <View style={styles.premiumCard}>
-            <Text style={styles.formSectionTitle}>5. Community Voice & History</Text>
-            <FormField label="Historical Insights (AI)" value={parsed.previous_complaints_insights} onChangeText={(t: string) => updateField('previous_complaints_insights', t)} multiline />
-            <FormField label="Key Complaints" value={parsed.key_complaints?.join(', ')} onChangeText={(t: string) => updateField('key_complaints', t.split(',').map(s => s.trim()))} />
-            <FormField label="Sentiment" value={parsed.sentiment} onChangeText={(t: string) => updateField('sentiment', t)} />
-            <FormField label="Full AI Description" value={parsed.description} onChangeText={(t: string) => updateField('description', t)} multiline />
+            <Text style={styles.formSectionTitle}>5. {t('volunteer.scan.communityVoice')}</Text>
+            <FormField label={t('volunteer.digitalSurvey.keyComplaints')} value={parsed.previous_complaints_insights} onChangeText={(t: string) => updateField('previous_complaints_insights', t)} multiline />
+            <FormField label={t('volunteer.digitalSurvey.keyComplaints')} value={parsed.key_complaints?.join(', ')} onChangeText={(t: string) => updateField('key_complaints', t.split(',').map(s => s.trim()))} />
+            <FormField label={t('volunteer.digitalSurvey.communitySentiment')} value={parsed.sentiment} onChangeText={(t: string) => updateField('sentiment', t)} />
+            <FormField label={t('volunteer.digitalSurvey.detailedDescription')} value={parsed.description} onChangeText={(t: string) => updateField('description', t)} multiline />
           </View>
 
           <View style={styles.buttonRow}>
             <PrimaryButton
-              title={isProcessing ? 'Submitting...' : (currentEditIndex < batchResults.length - 1 ? 'Save & Next' : 'Submit Final Report')}
+              title={isProcessing ? t('community.submitting') : (currentEditIndex < batchResults.length - 1 ? 'Save & Next' : t('volunteer.scan.submitReport'))}
               onPress={submitCurrentAndNext}
               style={styles.submitBtn}
               disabled={isProcessing}
             />
             <TouchableOpacity onPress={resetFlow} style={styles.retakeBtn}>
-              <Text style={styles.retakeText}>Cancel Batch</Text>
+              <Text style={styles.retakeText}>{t('assignments.reset')}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -973,28 +1106,78 @@ export const ScanSurveyScreen = () => {
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Scan & Survey" showBack={mode !== 'idle'} onBackPress={resetFlow} />
+      <AppHeader title={t('volunteer.scan.title')} showBack={mode !== 'idle'} onBackPress={resetFlow} />
 
       {mode === 'idle' && (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.idleScroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-          <Text style={styles.sectionLabel}>UPLOAD & DIGITIZE</Text>
+          <Text style={styles.sectionLabel}>{t('volunteer.scan.uploadDocument').toUpperCase()}</Text>
           <View style={styles.selectionGrid}>
-            <SelectionCard icon="file-text" title="Upload Files" description="PDFs & Images (Up to 10)" onPress={pickFiles} color={colors.primaryGreen} />
-            <SelectionCard icon="camera" title="Scan Paper" description="Use Camera" onPress={openCamera} color={colors.accentBlue} />
-            <SelectionCard icon="mic" title="Field Report" description="Photo + Voice + GPS" onPress={() => setMainView('field_report')} color={colors.primarySaffron} />
+            <SelectionCard icon="file-text" title={t('volunteer.scan.uploadDocument')} description="PDFs & Images" onPress={pickFiles} color={colors.primaryGreen} />
+            <SelectionCard icon="camera" title={t('volunteer.scan.camera')} description="Use Camera" onPress={openCamera} color={colors.accentBlue} />
+            <SelectionCard icon="mic" title={t('volunteer.fieldReport.title')} description="Photo + Voice + GPS" onPress={() => setMainView('field_report')} color={colors.primarySaffron} />
+          </View>
+
+          {/* Source Filter Tabs */}
+          <View style={styles.sourceTabsContainer}>
+            <TouchableOpacity 
+              style={[styles.sourceTab, reportSourceFilter === 'volunteer' && styles.sourceTabActive]} 
+              onPress={() => setReportSourceFilter('volunteer')}
+            >
+              <Feather name="user-check" size={14} color={reportSourceFilter === 'volunteer' ? '#fff' : colors.textSecondary} />
+              <Text style={[styles.sourceTabText, reportSourceFilter === 'volunteer' && styles.sourceTabTextActive]}>{t('volunteer.scan.filterVolunteer')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.sourceTab, reportSourceFilter === 'citizen' && styles.sourceTabActive]} 
+              onPress={() => setReportSourceFilter('citizen')}
+            >
+              <Feather name="users" size={14} color={reportSourceFilter === 'citizen' ? '#fff' : colors.textSecondary} />
+              <Text style={[styles.sourceTabText, reportSourceFilter === 'citizen' && styles.sourceTabTextActive]}>{t('volunteer.scan.filterCitizen')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.sourceTab, reportSourceFilter === 'all' && styles.sourceTabActive]} 
+              onPress={() => setReportSourceFilter('all')}
+            >
+              <Text style={[styles.sourceTabText, reportSourceFilter === 'all' && styles.sourceTabTextActive]}>{t('volunteer.scan.filterAll')}</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
-            <Text style={[styles.sectionLabel, { marginVertical: 0 }]}>RECENT SCANS</Text>
+            <Text style={[styles.sectionLabel, { marginVertical: 0 }]}>{t('volunteer.scan.recentScans').toUpperCase()}</Text>
             <View style={{ width: 140 }}>
-              <DropdownField options={CATEGORIES} selected={selectedCategory === 'All' ? '' : selectedCategory} onSelect={(val: string) => setSelectedCategory(val)} placeholder="All Categories" minimal />
+              <DropdownField 
+                placeholder={t('volunteer.scan.allCategories')} 
+                options={CATEGORIES.map(c => t(`categories.${c.toLowerCase()}`) !== `categories.${c.toLowerCase()}` ? t(`categories.${c.toLowerCase()}`) : c)} 
+                onSelect={(val: string) => {
+                  const original = CATEGORIES.find(c => t(`categories.${c.toLowerCase()}`) === val) || val;
+                  setSelectedCategory(original);
+                }}                minimal 
+              />
             </View>
           </View>
 
-          {loadingReports ? <ShimmerCardList count={3} /> : reports.filter(r => selectedCategory === 'All' || r.primary_category === selectedCategory || r.auto_category === selectedCategory || r.issue_type === selectedCategory).map(r => {
-            const urgCfg = getUrgencyConfig(r.urgency_level);
-            const sevCfg = getSeverityConfig(r.severity_score);
-            const iColor = issueColor(r.primary_category || r.auto_category || r.issue_type);
+          {loadingReports ? (
+            <ShimmerCardList count={3} />
+          ) : (
+            reports.filter(r => {
+              // 1. Source Filter
+              const isVolunteer = r.report_source === 'scan' || r.report_source === 'field_report' || !r.report_source;
+              const isCitizen = r.report_source === 'citizen_report';
+              
+              if (reportSourceFilter === 'volunteer' && !isVolunteer) return false;
+              if (reportSourceFilter === 'citizen' && !isCitizen) return false;
+              
+              // 2. Category Filter
+              if (selectedCategory === 'All') return true;
+              return (
+                getBilingualText(r.primary_category, language) === selectedCategory || 
+                getBilingualText(r.auto_category, language) === selectedCategory || 
+                r.issue_type === selectedCategory
+              );
+            }).map(r => {
+              const urgCfg = getUrgencyConfig(getBilingualText(r.urgency_level, language));
+              const sevCfg = getSeverityConfig(r.severity_score);
+              const catText = getBilingualText(r.primary_category, language) || getBilingualText(r.auto_category, language) || r.issue_type;
+              const iColor = issueColor(catText);
             return (
               <TouchableOpacity
                 key={r.id}
@@ -1020,24 +1203,22 @@ export const ScanSurveyScreen = () => {
                     <Feather name="file-text" size={18} color={iColor} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.reportName} numberOfLines={1}>{r.citizen_name || 'Anonymous'}</Text>
-                    <Text style={styles.reportMetaText} numberOfLines={1}>{r.precise_location || r.location || 'Location N/A'}</Text>
+                    <DynamicText style={styles.reportName} numberOfLines={1} text={r.citizen_name || 'Anonymous'} />
+                    <DynamicText style={styles.reportMetaText} numberOfLines={1} text={r.precise_location || r.location || 'Location N/A'} />
                   </View>
                   <Text style={styles.reportDate}>{formatDate(r.created_at)}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
                   {/* Category pill */}
                   <View style={[styles.categoryPill, { backgroundColor: iColor + '15', paddingVertical: 3 }]}>
-                    <Text style={[styles.categoryPillText, { color: iColor, fontSize: 11 }]}>
-                      {r.primary_category || r.auto_category || r.issue_type || 'General'}
-                    </Text>
+                    <DynamicText style={[styles.categoryPillText, { color: iColor, fontSize: 11 }]} text={catText || 'General'} />
                   </View>
                   {/* Urgency pill */}
                   {r.urgency_level && (
                     <View style={[styles.urgencyBadge, { backgroundColor: urgCfg.bg, borderColor: urgCfg.color + '60', paddingVertical: 2, marginTop: 0 }]}>
                       <View style={[styles.urgencyDot, { backgroundColor: urgCfg.color }]} />
                       <Text style={[styles.urgencyBadgeText, { color: urgCfg.color, fontSize: 11 }]}>
-                        {urgCfg.label}
+                        {(urgCfg.key && t(`supervisor.crisisHeatmap.${urgCfg.key}`) !== `supervisor.crisisHeatmap.${urgCfg.key}`) ? t(`supervisor.crisisHeatmap.${urgCfg.key}`) : urgCfg.label}
                       </Text>
                     </View>
                   )}
@@ -1050,9 +1231,9 @@ export const ScanSurveyScreen = () => {
                     </View>
                   )}
                 </View>
-              </TouchableOpacity>
-            );
-          })}
+                </TouchableOpacity>
+              );
+            }))}
         </ScrollView>
       )}
 
@@ -1062,8 +1243,8 @@ export const ScanSurveyScreen = () => {
         <View style={styles.celebWrapper}>
           <ConfettiOverlay play />
           <Feather name="check-circle" size={80} color={colors.success} />
-          <Text style={styles.celebTitle}>Successfully Scanned!</Text>
-          <Text style={styles.celebSubtitle}>All documents have been digitized with 20+ parameters extracted.</Text>
+          <Text style={styles.celebTitle}>{t('volunteer.digitalSurvey.successTitle')}</Text>
+          <Text style={styles.celebSubtitle}>{t('volunteer.digitalSurvey.successDesc')}</Text>
           <View style={{ gap: spacing.md, width: '100%', paddingHorizontal: spacing.xxl }}>
             {lastReportId && (
               <TouchableOpacity
@@ -1077,11 +1258,11 @@ export const ScanSurveyScreen = () => {
                   }
                 }}
               >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>View Report Details</Text>
+                <Text style={{ color: '#fff', fontWeight: '700' }}>{t('volunteer.digitalSurvey.viewReportDetails')}</Text>
               </TouchableOpacity>
             )}
             <PrimaryButton
-              title="Done"
+              title={t('assignments.gotIt')}
               onPress={resetFlow}
               style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.primaryGreen, elevation: 0, shadowOpacity: 0 }}
               textStyle={{ color: colors.primaryGreen }}
@@ -1117,33 +1298,33 @@ export const ScanSurveyScreen = () => {
       </Modal>
 
       {/* Detailed Timeline Modal – Week-by-Week */}
-      <Modal
-        visible={showTimelineModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowTimelineModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: '#0D47A1', fontWeight: '800' }]}>Week-by-Week Timeline</Text>
-              <TouchableOpacity onPress={() => setShowTimelineModal(false)}>
-                <Feather name="x" size={24} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ padding: spacing.lg }}>
-              {displayedReport?.detailed_resolution_steps && displayedReport.detailed_resolution_steps.length > 0 ? (
-                displayedReport.detailed_resolution_steps.map((step: string, i: number) => {
-                  const weekStart = i * 2 + 1;
-                  const weekEnd = weekStart + 1;
-                  return <AnimatedWeekRow key={i} step={step} weekStart={weekStart} weekEnd={weekEnd} index={i} />;
-                })
-              ) : (
-                <Text style={styles.emptyText}>No granular details available for this report.</Text>
-              )}
-            </ScrollView>
+      <Modal visible={showTimelineModal} transparent animationType="fade" onRequestClose={() => setShowTimelineModal(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowTimelineModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.modalContent, { maxHeight: '85%' }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, { color: '#0D47A1', fontWeight: '800' }]}>{t('volunteer.scan.timelineModalTitle')}</Text>
+                  <TouchableOpacity onPress={() => setShowTimelineModal(false)}>
+                    <Feather name="x" size={24} color={colors.textPrimary} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={{ padding: spacing.lg }} showsVerticalScrollIndicator={false}>
+                  {timelineSteps.length > 0 ? (
+                    timelineSteps.map((step: string, i: number) => {
+                      const weekStart = i * 2 + 1;
+                      const weekEnd = weekStart + 1;
+                      return <AnimatedWeekRow key={i} step={step} weekStart={weekStart} weekEnd={weekEnd} index={i} />;
+                    })
+                  ) : (
+                    <Text style={styles.emptyText}>{t('volunteer.scan.noResolutionSteps')}</Text>
+                  )}
+                  <View style={{ height: 20 }} />
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Bottom Sheet for Detail View */}
@@ -1156,16 +1337,14 @@ export const ScanSurveyScreen = () => {
         backgroundStyle={{ backgroundColor: colors.cardBackground, borderRadius: 24 }}
       >
         <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl }}>
-          {/* ── Bottom Sheet Header with Urgency Badge ── */}
+          {/* Header */}
           <View style={styles.bsHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.modalTitle}>Report Details</Text>
-              <Text style={styles.bsSubtitle} numberOfLines={1}>
-                {displayedReport?.precise_location || displayedReport?.location || 'Location not available'}
-              </Text>
+              <Text style={styles.modalTitle}>{t('volunteer.scan.reportDetails')}</Text>
+              <DynamicText style={styles.bsSubtitle} numberOfLines={1} text={displayedReport?.precise_location || displayedReport?.location || t('common.n/a')} />
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {displayedReport && <UrgencyBadge level={displayedReport.urgency_level} />}
+              {displayedReport && <UrgencyBadge level={getBilingualText(displayedReport.urgency_level, language)} />}
               <TouchableOpacity onPress={() => bottomSheetRef.current?.close()} style={styles.bsCloseBtn}>
                 <Feather name="x" size={18} color={colors.textPrimary} />
               </TouchableOpacity>
@@ -1174,432 +1353,246 @@ export const ScanSurveyScreen = () => {
 
           {displayedReport && (
             <>
-              {/* ══════════════════ SECTION 1: WHO & WHERE ══════════════════ */}
-              <View style={[styles.sectionCard, { borderLeftColor: colors.primaryGreen }]}>
-                <SectionHeader number="1" title="Who & Where" icon="map-pin" />
-                <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: colors.primaryGreen }]}>
-                  <DetailRow icon="user" label="Citizen Name" value={displayedReport.citizen_name || 'Anonymous'} />
-                  <DetailRow icon="phone" label="Phone" value={displayedReport.phone || 'N/A'} />
-                  <DetailRow icon="map-pin" label="Location" value={displayedReport.precise_location || displayedReport.location || 'N/A'} />
-                  {displayedReport.gps_coordinates && <DetailRow icon="navigation" label="GPS Coordinates" value={displayedReport.gps_coordinates} />}
-                </View>
-              </View>
-
-              {/* ══════════════════ SECTION 2: THE PROBLEM ══════════════════ */}
-              <View style={[styles.sectionCard, { borderLeftColor: colors.primaryGreen }]}>
-                <SectionHeader number="2" title="The Problem" icon="alert-circle" />
-
-                {/* Category pills */}
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
-                  <View style={[styles.categoryPill, { backgroundColor: issueColor(displayedReport.primary_category || displayedReport.auto_category || displayedReport.issue_type) + '18' }]}>
-                    <Feather name="grid" size={13} color={issueColor(displayedReport.primary_category || displayedReport.auto_category || displayedReport.issue_type)} />
-                    <Text style={[styles.categoryPillText, { color: issueColor(displayedReport.primary_category || displayedReport.auto_category || displayedReport.issue_type) }]}>
-                      {displayedReport.primary_category || displayedReport.auto_category || displayedReport.issue_type || 'Uncat.'}
-                    </Text>
-                  </View>
-                  {displayedReport.sub_category && (
-                    <View style={[styles.categoryPill, { backgroundColor: colors.textSecondary + '18' }]}>
-                      <Feather name="corner-down-right" size={13} color={colors.textSecondary} />
-                      <Text style={[styles.categoryPillText, { color: colors.textSecondary }]}>{displayedReport.sub_category}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Executive Summary */}
-                {displayedReport.executive_summary && (
-                  <View style={styles.summaryBlock}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <Feather name="file-text" size={14} color={colors.primaryGreen} />
-                      <Text style={styles.summaryLabel}>EXECUTIVE SUMMARY</Text>
-                    </View>
-                    <Text style={[styles.summaryText, { color: colors.textPrimary }]}>{displayedReport.executive_summary}</Text>
-                  </View>
-                )}
-
-                <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: colors.primaryGreen }]}>
-                  {/* Urgency Row */}
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIconWrap}>
-                      <Feather name="alert-triangle" size={16} color={getUrgencyConfig(displayedReport.urgency_level).color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.detailLabel}>URGENCY</Text>
-                        <TouchableOpacity
-                          onPress={() => setInfoPopup({
-                            title: 'Why this Urgency Level?',
-                            accent: getUrgencyConfig(displayedReport.urgency_level).color,
-                            reason: `Urgency is rated "${displayedReport.urgency_level || 'Moderate'}" based on:
-• Duration of problem: ${displayedReport.duration_of_problem || 'unknown'}
-• Population affected: ${displayedReport.population_affected ?? 'unknown'}
-• Vulnerable groups: ${displayedReport.vulnerable_group || 'none noted'}
-• Impact: Overall daily life impact as assessed by Gemini AI.`
-                          })}
-                          style={styles.infoBadge}
-                        >
-                          <Text style={styles.infoBadgeText}>i</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <UrgencyBadge level={displayedReport.urgency_level} />
+              {displayedReport.report_source === 'citizen_report' ? (
+                // ─── Simplified Citizen View ───
+                <>
+                  {/* Section 1: Citizen Info */}
+                  <View style={[styles.sectionCard, { borderLeftColor: colors.accentBlue }]}>
+                    <SectionHeader number="" title="Citizen Information" icon="user" accent={colors.accentBlue} />
+                    <View style={styles.infoCard}>
+                      <DetailRow icon="user" label="Reported By" value={displayedReport.citizen_name || 'Anonymous'} />
+                      <DetailRow icon="mail" label="Contact" value={displayedReport.phone || 'N/A'} />
+                      <DetailRow icon="map-pin" label="Location" value={displayedReport.precise_location || displayedReport.location} />
                     </View>
                   </View>
-                  <DetailRow icon="clock" label="Duration of Problem" value={displayedReport.duration_of_problem} />
-                </View>
-              </View>
 
-              {/* ══════════════════ SECTION 3: IMPACT & SEVERITY ════════════ */}
-              <View style={[styles.sectionCard, { borderLeftColor: '#E53935' }]}>
-                <SectionHeader number="3" title="Impact & Severity" icon="activity" accent="#E53935" />
-
-                <SeverityGauge
-                  score={displayedReport.severity_score}
-                  onInfoPress={() => setInfoPopup({
-                    title: 'Why this Severity Score?',
-                    accent: '#E53935',
-                    reason: displayedReport.severity_reason 
-                      ? `AI Justification for ${displayedReport.severity_score}/10:\n${displayedReport.severity_reason}`
-                      : `AI severity score ${displayedReport.severity_score ?? '—'}/10 is based on:
-• Population affected: ${displayedReport.population_affected ?? 'unknown'}
-• Vulnerable groups: ${displayedReport.vulnerable_group || 'none'}
-• Secondary impact: ${displayedReport.secondary_impact || 'none'}
-• Urgency Level: ${displayedReport.urgency_level || 'moderate'}
-• Problem duration: ${displayedReport.duration_of_problem || 'unknown'}
-
-Higher scores = urgent intervention needed.`
-                  })}
-                />
-
-                {displayedReport.population_affected != null && (
-                  <View style={styles.popCard}>
-                    <Feather name="users" size={20} color="#1976D2" />
-                    <View style={{ marginLeft: spacing.md }}>
-                      <Text style={styles.popNumber}>{Number(displayedReport.population_affected).toLocaleString()}</Text>
-                      <Text style={styles.popLabel}>People Affected</Text>
-                    </View>
-                  </View>
-                )}
-
-                <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: '#E53935' }]}>
-                  <DetailRow icon="user-plus" label="Vulnerable Group" value={displayedReport.vulnerable_group} color="#E53935" />
-                  <DetailRow icon="message-circle" label="Key Complaints" value={displayedReport.key_complaints?.join(', ')} color="#E53935" />
-                  <DetailRow icon="smile" label="Community Sentiment" value={displayedReport.sentiment} color="#E53935" />
-                  {displayedReport.description && (
-                    <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: '#FAFAFA', borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8, paddingHorizontal: 4 }}>
-                        <View style={[styles.detailIconWrap, { backgroundColor: '#E5393515' }]}>
-                          <Feather name="align-left" size={16} color="#E53935" />
-                        </View>
-                        <Text style={[styles.detailLabel, { color: colors.textPrimary, fontSize: 13, fontWeight: '800', flex: 1 }]}>DESCRIPTION & NEEDS</Text>
-                      </View>
-                      <DetailBulletList text={displayedReport.description} accent="#E53935" />
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* ══════════════════ SECTION 4: ACTION & FOLLOW-UP ═══════════ */}
-              <View style={[styles.sectionCard, { borderLeftColor: '#1976D2' }]}>
-                <SectionHeader number="4" title="Action & Follow-up" icon="check-square" accent="#1976D2" />
-
-                <View style={styles.timelineCard}>
-                  <Text style={styles.timelineCardTitle}>📅  EXPECTED RESOLUTION TIMELINE</Text>
-                  {displayedReport.expected_resolution_timeline && Array.isArray(displayedReport.expected_resolution_timeline) && displayedReport.expected_resolution_timeline.length > 0 ? (
-                    <>
-                      {displayedReport.expected_resolution_timeline.map((step, idx) => (
-                        <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: spacing.sm }}>
-                          <View style={{ alignItems: 'center', marginRight: spacing.md }}>
-                            <View style={[styles.timelineDot, { backgroundColor: '#1976D2', opacity: idx === 0 ? 1 : 0.6 }]} />
-                            {idx < displayedReport.expected_resolution_timeline!.length - 1 && (
-                              <View style={[styles.timelineLine, { backgroundColor: '#1976D240' }]} />
-                            )}
-                          </View>
-                          <View style={{ flex: 1, paddingBottom: spacing.md }}>
-                            <Text style={styles.timelineStep}>{step}</Text>
-                          </View>
-                        </View>
-                      ))}
-                      <AnimatedTimelineBtn onPress={() => setShowTimelineModal(true)} />
-                    </>
-                  ) : (
-                    <Text style={styles.detailValue}>—</Text>
-                  )}
-                </View>
-
-                <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: '#1976D2' }]}>
-                  <DetailRow icon="clock" label="Follow-up Date" value={displayedReport.follow_up_date || 'TBD'} color="#1976D2" />
-                  <DetailRow icon="info" label="Current Status" value={displayedReport.status || 'Open'} color="#1976D2" />
-                </View>
-
-                {displayedReport.govt_scheme_applicable ? (
-                  <View style={styles.schemeCard}>
-                    <View style={styles.schemeHeader}>
-                      <View style={styles.schemeIconWrap}>
-                        <Feather name="briefcase" size={16} color="#1976D2" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.schemeLabel}>GOVERNMENT SCHEME</Text>
-                        <Text style={styles.schemeName}>{displayedReport.govt_scheme_applicable.split(':')[0].trim()}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.schemeDivider} />
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                      <Feather name="info" size={13} color="#1976D2" style={{ marginTop: 2 }} />
-                      <Text style={styles.schemeReason}>
-                        {displayedReport.govt_scheme_applicable.includes(':')
-                          ? displayedReport.govt_scheme_applicable.split(':').slice(1).join(':').trim()
-                          : `Applicable as this issue involves ${displayedReport.primary_category || 'infrastructure'} affecting ${displayedReport.population_affected ?? 'multiple'} residents — falls under the scheme's community welfare mandate.`
-                        }
-                      </Text>
-                    </View>
-                  </View>
-                ) : (
-                  <DetailRow icon="briefcase" label="Government Scheme" value="None identified" />
-                )}
-
-                <View style={styles.aiCard}>
-                  <View style={styles.aiCardHeader}>
-                    <Image source={{ uri: 'https://cdn-icons-png.flaticon.com/512/2040/2040946.png' }} style={{ width: 22, height: 22, resizeMode: 'contain' }} />
-                    <Text style={styles.aiCardTitle}>AI-Powered Insights</Text>
-                  </View>
-                  <Text style={styles.aiSubLabel}>AI RECOMMENDED ACTIONS</Text>
-                  <DetailBulletList text={displayedReport.ai_recommended_actions} accent="#1976D2" />
-                </View>
-              </View>
-
-              {/* ══════════════════ SECTION 5: PREVIOUS COMPLAINTS ══════════ */}
-              <View style={[styles.sectionCard, { borderLeftColor: '#8E24AA' }]}>
-                <SectionHeader number="5" title="Previous Complaints & Solutions" icon="clock" accent="#8E24AA" />
-
-                <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: '#8E24AA' }]}>
-                  <DetailRow icon="database" label="Historical Insights" value={displayedReport.previous_complaints_insights} color="#8E24AA" />
-                  
-                  {/* Dynamic Direct Links to Previous Reports */}
-                  {(() => {
-                    const related = reports
-                      .filter(r => r.id !== displayedReport.id && r.primary_category === displayedReport.primary_category)
-                      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-                      .slice(0, 4);
-                      
-                    if (related.length === 0) return null;
-                    return (
-                      <View style={{ marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: '#8E24AA15' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs }}>
-                          <Feather name="link" size={12} color="#8E24AA" />
-                          <Text style={{ ...typography.captionText, fontSize: 11, color: '#8E24AA', fontWeight: '800' }}>
-                            {related.length} RELATED PAST REPORTS:
-                          </Text>
-                        </View>
-                        {related.map((rel) => (
-                           <TouchableOpacity 
-                             key={rel.id}
-                             style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 4 }}
-                             activeOpacity={0.6} 
-                             onPress={() => {
-                               bottomSheetRef.current?.close();
-                               setTimeout(() => {
-                                 setDisplayedReport(rel);
-                                 bottomSheetRef.current?.expand();
-                               }, 300);
-                             }}
-                           >
-                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                               <Feather name="external-link" size={12} color="#8E24AA" />
-                               <Text style={{ ...typography.bodyText, fontSize: 13, color: '#8E24AA', textDecorationLine: 'underline', fontWeight: '700' }}>
-                                 #REP-{String(rel.id).substring(0, 6).toUpperCase()}
-                               </Text>
-                             </View>
-                             <Text style={{ ...typography.captionText, fontSize: 11, color: colors.textSecondary }}>
-                               {rel.created_at ? formatDate(rel.created_at) : 'Unknown Date'}
-                             </Text>
-                           </TouchableOpacity>
-                        ))}
-                      </View>
-                    );
-                  })()}
-                </View>
-
-                <View style={styles.solutionsCard}>
-                  <Text style={styles.solutionsTitle}>✅  SOLUTIONS IMPLEMENTED IN PREVIOUS REPORTS</Text>
-                  {(() => {
-                    const rawInsights = displayedReport.previous_complaints_insights || '';
-                    const keyComplaints = displayedReport.key_complaints || [];
-                    const solutions: string[] = [
-                      rawInsights.length > 30
-                        ? `Partial resolution attempt: ${rawInsights.split('.')[0].trim()}.`
-                        : `Community grievance logged and escalated to the ${displayedReport.primary_category || 'concerned'} department for review.`,
-                      keyComplaints.length > 0
-                        ? `Awareness drive conducted addressing key issues: ${keyComplaints.slice(0, 2).join(', ')}.`
-                        : `Field inspection carried out by the local authority to assess the reported condition on ground.`,
-                      `Interim measures put in place to reduce immediate impact on affected ${displayedReport.vulnerable_group ?? 'residents'} pending full resolution.`,
-                    ];
-                    return solutions.map((sol, idx) => (
-                      <View key={idx} style={styles.solutionRow}>
-                        <View style={styles.solutionBullet}>
-                          <Feather name="check" size={11} color="#fff" />
-                        </View>
-                        <Text style={styles.solutionText}>{sol}</Text>
-                      </View>
-                    ));
-                  })()}
-                </View>
-              </View>
-
-              {/* Attachments Section (Enhanced for Multiple Files) */}
-              {(() => {
-                const attachments = displayedReport.media_attachments || [];
-                const hasLegacyPhoto = !!displayedReport.photo_url;
-                const hasLegacyAudio = !!displayedReport.audio_url;
-                
-                if (attachments.length === 0 && !hasLegacyPhoto && !hasLegacyAudio) return null;
-
-                // Combine new attachments with legacy fields for full backwards compatibility
-                const allMedia = [...attachments];
-                if (hasLegacyPhoto && !attachments.find(a => a.url === displayedReport.photo_url)) {
-                  allMedia.push({ url: displayedReport.photo_url!, type: 'image' });
-                }
-                if (hasLegacyAudio && !attachments.find(a => a.url === displayedReport.audio_url)) {
-                  allMedia.push({ url: displayedReport.audio_url!, type: 'audio' });
-                }
-
-                const isDocument = (m: any) => {
-                  const format = (m.format || '').toLowerCase();
-                  const url = (m.url || '').toLowerCase();
-                  const docExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'ppt', 'pptx'];
-                  
-                  // Check explicit format first
-                  if (docExtensions.includes(format)) return true;
-                  
-                  // Check URL for extensions (more robust than endsWith for Cloudinary URLs)
-                  return docExtensions.some(ext => url.includes(`.${ext}`));
-                };
-
-                const images = allMedia.filter(m => m.type === 'image' && !isDocument(m));
-                const others = allMedia.filter(m => m.type !== 'image' || isDocument(m));
-
-                return (
+                  {/* Section 2: Issue Details */}
                   <View style={[styles.sectionCard, { borderLeftColor: colors.primarySaffron }]}>
-                    <SectionHeader number="" title="Attachments" icon="paperclip" accent={colors.primarySaffron} />
+                    <SectionHeader number="" title="Reported Issue" icon="alert-circle" accent={colors.primarySaffron} />
+                    <View style={{ marginBottom: spacing.md }}>
+                      <View style={[styles.categoryPill, { alignSelf: 'flex-start', backgroundColor: issueColor(getBilingualText(displayedReport.primary_category, language)) + '15' }]}>
+                        <Feather name="grid" size={14} color={issueColor(getBilingualText(displayedReport.primary_category, language))} />
+                        <Text style={[styles.categoryPillText, { color: issueColor(getBilingualText(displayedReport.primary_category, language)) }]}>
+                          {getBilingualText(displayedReport.primary_category, language)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.citizenDescBox}>
+                      <Text style={styles.detailLabel}>DESCRIPTION</Text>
+                      <Text style={styles.citizenDescText}>{getBilingualText(displayedReport.description, language)}</Text>
+                    </View>
+                  </View>
+
+                  {/* Section 3: Multimedia Attachments */}
+                  <View style={[styles.sectionCard, { borderLeftColor: colors.success }]}>
+                    <SectionHeader number="" title="Multimedia Attachments" icon="paperclip" accent={colors.success} />
                     
-                    {/* Image Grid */}
-                    {images.length > 0 && (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: others.length > 0 ? spacing.md : 0 }}>
-                        {images.map((img, idx) => {
-                          let fullUrl = img.url;
-                          if (img.public_id && fullUrl.includes('cloudinary.com')) {
-                            fullUrl = `${API_BASE_URL}/chat/serve-file?public_id=${img.public_id}&r_type=image`;
-                          } else if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
-                            fullUrl = API_BASE_URL + fullUrl;
-                          }
-                          
-                          return (
-                            <TouchableOpacity
-                              key={idx}
-                              activeOpacity={0.9}
-                              onPress={() => { setViewerUri(fullUrl); setViewerVisible(true); }}
-                              style={{ 
-                                width: images.length === 1 ? '100%' : images.length === 2 ? '48%' : '31%', 
-                                aspectRatio: 1, 
-                                borderRadius: 12, 
-                                overflow: 'hidden', 
-                                backgroundColor: colors.background 
-                              }}
-                            >
-                              <Image source={{ uri: fullUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                              <View style={{ position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.4)', padding: 4, borderRadius: 12 }}>
-                                <Feather name="maximize" size={12} color="#FFF" />
-                              </View>
+                    {/* Image Gallery */}
+                    {(displayedReport.photo_url || displayedReport.media_attachments?.some((m: any) => m.type === 'image')) && (
+                      <View style={{ marginBottom: spacing.md }}>
+                        <Text style={styles.detailLabel}>PHOTOS</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+                          {displayedReport.photo_url && (
+                            <TouchableOpacity onPress={() => { setViewerUri(displayedReport.photo_url); setViewerVisible(true); }} style={styles.attachmentImageWrapper}>
+                              <Image source={{ uri: displayedReport.photo_url }} style={styles.attachmentImage} />
                             </TouchableOpacity>
-                          );
-                        })}
+                          )}
+                          {displayedReport.media_attachments?.filter((m: any) => m.type === 'image').map((img: any, idx: number) => (
+                            <TouchableOpacity key={idx} onPress={() => { setViewerUri(img.url); setViewerVisible(true); }} style={styles.attachmentImageWrapper}>
+                              <Image source={{ uri: img.url }} style={styles.attachmentImage} />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
                       </View>
                     )}
 
-                    {/* Other Media (Videos, Audio, Docs) */}
-                    {others.map((media, idx) => {
-                      let fullUrl = media.url;
-                      if (media.public_id && fullUrl.includes('cloudinary.com')) {
-                        const rType = media.type === 'image' ? 'image' : 'video'; // Cloudinary treats PDF/Audio as video or raw
-                        fullUrl = `${API_BASE_URL}/chat/serve-file?public_id=${media.public_id}&r_type=${rType}`;
-                        if (media.format) fullUrl += `&extension=${media.format}`;
-                      } else if (!fullUrl.startsWith('file://') && !fullUrl.startsWith('https://')) {
-                        fullUrl = API_BASE_URL + fullUrl;
-                      }
+                    {/* Audio Player */}
+                    {(displayedReport.audio_url || displayedReport.media_attachments?.some((m: any) => m.type === 'audio')) && (
+                      <View>
+                        <Text style={styles.detailLabel}>VOICE DESCRIPTION</Text>
+                        {displayedReport.audio_url && <AudioPlayer url={displayedReport.audio_url} />}
+                        {displayedReport.media_attachments?.filter((m: any) => m.type === 'audio').map((aud: any, idx: number) => (
+                          <AudioPlayer key={idx} url={aud.url} />
+                        ))}
+                      </View>
+                    )}
 
-                      if (media.type === 'audio' || media.type === 'video' && media.format === 'ogg') {
-                        return <AudioPlayer key={idx} url={fullUrl} />;
-                      }
-
-                      const isDoc = isDocument(media);
-                      const isVideo = media.type === 'video';
-                      
-                      return (
-                        <TouchableOpacity
-                          key={idx}
-                          activeOpacity={0.7}
-                          style={{ 
-                            flexDirection: 'row', 
-                            alignItems: 'center', 
-                            backgroundColor: colors.background, 
-                            padding: spacing.md, 
-                            borderRadius: 12, 
-                            borderWidth: 1, 
-                            borderColor: (isVideo ? '#E53935' : colors.primaryGreen) + '40', 
-                            marginBottom: spacing.sm 
-                          }}
-                          onPress={() => Linking.openURL(fullUrl)}
-                        >
-                          <Feather 
-                            name={isDoc ? "file-text" : isVideo ? "video" : "paperclip"} 
-                            size={24} 
-                            color={isVideo ? '#E53935' : colors.primaryGreen} 
-                          />
-                          <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                            <Text style={{ ...typography.bodyText, color: isVideo ? '#E53935' : colors.primaryGreen, fontWeight: '700' }}>
-                              {media.name || (isDoc ? "Open Document in Browser" : isVideo ? "Play Video Attachment" : "View Attached File")}
-                            </Text>
-                            <Text style={{ ...typography.captionText, fontSize: 10, color: colors.textSecondary }}>
-                              Format: {media.format || 'unknown'}
-                            </Text>
-                          </View>
-                          <Feather name="external-link" size={16} color={isVideo ? '#E53935' : colors.primaryGreen} />
-                        </TouchableOpacity>
-                      );
-                    })}
+                    {!displayedReport.photo_url && !displayedReport.audio_url && (!displayedReport.media_attachments || displayedReport.media_attachments.length === 0) && (
+                      <Text style={styles.emptyText}>No multimedia attachments found.</Text>
+                    )}
                   </View>
-                );
-              })()}
+                </>
+              ) : (
+                // ─── Standard Volunteer View ───
+                <>
+                  {/* Section 1: Who & Where */}
+                  <View style={[styles.sectionCard, { borderLeftColor: colors.primaryGreen }]}>
+                    <SectionHeader number="1" title={t('volunteer.scan.whoWhere')} icon="map-pin" />
+                    <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: colors.primaryGreen }]}>
+                      <DetailRow icon="user" label={t('volunteer.scan.citizenName')} value={displayedReport.citizen_name || 'Anonymous'} collection="community_reports" docId={displayedReport.id} field="citizen_name" />
+                      <DetailRow icon="phone" label={t('volunteer.scan.phone')} value={displayedReport.phone} />
+                      <DetailRow icon="map-pin" label={t('volunteer.scan.location')} value={displayedReport.precise_location || displayedReport.location} collection="community_reports" docId={displayedReport.id} field="precise_location" />
+                      {displayedReport.gps_coordinates && (
+                        <DetailRow icon="navigation" label={t('volunteer.scan.gpsAuto')} value={displayedReport.gps_coordinates} />
+                      )}
+                    </View>
+                  </View>
 
-              {/* System Info */}
-              <View style={[styles.sectionCard, { borderLeftColor: colors.textSecondary }]}>
-                <SectionHeader number="" title="System Info" icon="server" accent={colors.textSecondary} />
-                <View style={styles.infoCard}>
-                  <DetailRow icon="hash" label="Report ID" value={displayedReport.id} />
-                  <DetailRow icon="user-check" label="Volunteer" value={displayedReport.volunteer_id} />
-                  <DetailRow icon="server" label="Source" value={displayedReport.report_source || 'Unknown'} />
-                  <DetailRow icon="calendar" label="Created At" value={formatDate(displayedReport.created_at)} />
-                </View>
+                  {/* Section 2: The Problem */}
+                  <View style={[styles.sectionCard, { borderLeftColor: colors.primaryGreen }]}>
+                    <SectionHeader number="2" title={t('volunteer.scan.theProblem')} icon="alert-circle" />
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+                      <View style={[styles.categoryPill, { backgroundColor: issueColor(getBilingualText(displayedReport.primary_category, language) || getBilingualText(displayedReport.auto_category, language)) + '18' }]}>
+                        <Feather name="grid" size={13} color={issueColor(getBilingualText(displayedReport.primary_category, language) || getBilingualText(displayedReport.auto_category, language))} />
+                        <Text style={[styles.categoryPillText, { color: issueColor(getBilingualText(displayedReport.primary_category, language) || getBilingualText(displayedReport.auto_category, language)) }]}>
+                          {getBilingualText(displayedReport.primary_category, language) || getBilingualText(displayedReport.auto_category, language) || 'General'}
+                        </Text>
+                      </View>
+                    </View>
+                    {getBilingualText(displayedReport.executive_summary, language) && (
+                      <View style={styles.summaryBlock}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                          <Feather name="file-text" size={14} color={colors.primaryGreen} />
+                          <Text style={styles.summaryLabel}>{t('volunteer.scan.executiveSummary').toUpperCase()}</Text>
+                        </View>
+                        <DynamicText 
+                          style={styles.summaryText} 
+                          text={getBilingualText(displayedReport.executive_summary, language)} 
+                          collection="community_reports"
+                          docId={displayedReport.id}
+                          field="executive_summary"
+                        />
+                      </View>
+                    )}
+                    <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: colors.primaryGreen }]}>
+                      <DetailRow icon="alert-triangle" label={t('volunteer.scan.urgencyLevel')} value={getBilingualText(displayedReport.urgency_level, language)} collection="community_reports" docId={displayedReport.id} field="urgency_level" />
+                      <DetailRow icon="clock" label={t('volunteer.scan.duration')} value={getBilingualText(displayedReport.duration_of_problem, language)} collection="community_reports" docId={displayedReport.id} field="duration_of_problem" />
+                    </View>
+                  </View>
+
+                  {/* Section 3: Impact & Severity */}
+                  <View style={[styles.sectionCard, { borderLeftColor: "#E53935" }]}>
+                    <SectionHeader number="3" title={t('volunteer.scan.impactSeverity')} icon="activity" accent="#E53935" />
+                    <SeverityGauge
+                      score={displayedReport.severity_score}
+                      onInfoPress={() => setInfoPopup({
+                        title: t('volunteer.scan.severityScore'),
+                        accent: '#E53935',
+                        reason: getBilingualText(displayedReport.severity_reason, language) || 'AI analysis based on multiple factors.'
+                      })}
+                    />
+                    {displayedReport.population_affected != null && (
+                      <View style={styles.popCard}>
+                        <Feather name="users" size={20} color="#1976D2" />
+                        <View style={{ marginLeft: spacing.md }}>
+                          <Text style={styles.popNumber}>{Number(displayedReport.population_affected).toLocaleString()}</Text>
+                          <Text style={styles.popLabel}>{t('volunteer.scan.peopleAffected')}</Text>
+                        </View>
+                      </View>
+                    )}
+                    <View style={[styles.infoCard, { borderTopWidth: 3, borderTopColor: '#E53935' }]}>
+                      <DetailRow icon="user-plus" label={t('volunteer.scan.vulnerableGroup')} value={getBilingualText(displayedReport.vulnerable_group, language)} color="#E53935" collection="community_reports" docId={displayedReport.id} field="vulnerable_group" />
+                      <DetailRow icon="message-circle" label={t('volunteer.scan.keyComplaints')} value={getBilingualArray(displayedReport.key_complaints, language).join(', ')} color="#E53935" collection="community_reports" docId={displayedReport.id} field="key_complaints" />
+                      {getBilingualText(displayedReport.description, language) && (
+                        <View style={{ marginTop: spacing.md, padding: spacing.sm, backgroundColor: '#FAFAFA', borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0' }}>
+                          <Text style={[styles.detailLabel, { marginBottom: 6 }]}>{t('volunteer.scan.descriptionNeeds')}</Text>
+                          <DynamicText 
+                            style={styles.detailValue} 
+                            text={getBilingualText(displayedReport.description, language)} 
+                            collection="community_reports"
+                            docId={displayedReport.id}
+                            field="description"
+                          />
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Section 4: AI Insights */}
+                  <View style={[styles.sectionCard, { borderLeftColor: '#1976D2' }]}>
+                    <SectionHeader number="4" title={t('volunteer.scan.aiInsights')} icon="zap" accent="#1976D2" />
+                    <View style={styles.aiCard}>
+                      <Text style={styles.aiSubLabel}>{t('volunteer.scan.aiRecommendations')}</Text>
+                      <DynamicText 
+                        style={styles.detailValue} 
+                        text={getBilingualText(displayedReport.ai_recommended_actions, language)} 
+                        collection="community_reports"
+                        docId={displayedReport.id}
+                        field="ai_recommended_actions"
+                      />
+                    </View>
+                    {getBilingualText(displayedReport.govt_scheme_applicable, language) && (
+                      <View style={styles.schemeCard}>
+                        <Text style={styles.schemeLabel}>{t('volunteer.scan.govtScheme')}</Text>
+                        <DynamicText 
+                          style={styles.schemeName} 
+                          text={getBilingualText(displayedReport.govt_scheme_applicable, language)} 
+                          collection="community_reports"
+                          docId={displayedReport.id}
+                          field="govt_scheme_applicable"
+                        />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Section 5: Solutions history */}
+                  <View style={[styles.sectionCard, { borderLeftColor: '#8E24AA' }]}>
+                    <SectionHeader number="5" title={t('volunteer.scan.solutionsHistory')} icon="check-circle" accent="#8E24AA" />
+                    <View style={styles.solutionsCard}>
+                      {displayedReport.detailed_resolution_steps && getBilingualArray(displayedReport.detailed_resolution_steps, language).slice(0, 3).map((sol: string, idx: number) => (
+                        <View key={idx} style={styles.solutionRow}>
+                          <View style={styles.solutionBullet}><Feather name="check" size={11} color="#fff" /></View>
+                          <DynamicText 
+                            style={styles.solutionText} 
+                            text={sol} 
+                            collection="community_reports"
+                            docId={displayedReport.id}
+                            field={`resolution_step_${idx}`}
+                          />
+                        </View>
+                      ))}
+                      <AnimatedTimelineBtn onPress={() => setShowTimelineModal(true)} />
+                    </View>
+                  </View>
+
+                  {/* Attachments */}
+                  {(displayedReport.media_attachments?.length || displayedReport.photo_url) ? (
+                    <View style={[styles.sectionCard, { borderLeftColor: colors.primarySaffron }]}>
+                      <SectionHeader number="" title={t('volunteer.scan.attachments')} icon="paperclip" accent={colors.primarySaffron} />
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        {[...(displayedReport.media_attachments || []), ...(displayedReport.photo_url ? [{ url: displayedReport.photo_url, type: 'image' }] : [])].map((img, idx) => (
+                          <TouchableOpacity key={idx} onPress={() => { setViewerUri(img.url); setViewerVisible(true); }} style={{ width: '31%', aspectRatio: 1, borderRadius: 12, overflow: 'hidden' }}>
+                            <Image source={{ uri: img.url }} style={{ width: '100%', height: '100%' }} />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              )}
+
+              {/* Action Buttons */}
+              <View style={{ gap: spacing.sm, marginTop: spacing.md, marginBottom: spacing.xl }}>
+                {displayedReport.status !== 'Resolved' && displayedReport.status !== 'Completed' && (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={{ backgroundColor: colors.success, padding: spacing.md, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}
+                    onPress={() => handleResolveReport(displayedReport.id)}
+                  >
+                    <Feather name="check-circle" size={18} color="#fff" />
+                    <Text style={{ ...typography.bodyText, color: '#fff', fontWeight: '800' }}>Mark as Resolved</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={{ backgroundColor: '#FFEBEE', padding: spacing.md, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E5393520', gap: spacing.sm }}
+                  onPress={() => handleDeleteReport(displayedReport.id)}
+                >
+                  <Feather name="trash-2" size={18} color="#E53935" />
+                  <Text style={{ ...typography.bodyText, color: '#E53935', fontWeight: '700' }}>{t('volunteer.reports.deleteReport')}</Text>
+                </TouchableOpacity>
               </View>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                style={{
-                  marginTop: spacing.sm,
-                  marginBottom: spacing.xl,
-                  backgroundColor: '#FFEBEE',
-                  padding: spacing.md,
-                  borderRadius: 14,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 1,
-                  borderColor: '#E5393520',
-                  gap: spacing.sm,
-                }}
-                onPress={() => handleDeleteReport(displayedReport.id)}
-              >
-                <Feather name="trash-2" size={18} color="#E53935" />
-                <Text style={{ ...typography.bodyText, color: '#E53935', fontWeight: '700' }}>Delete Report Entry</Text>
-              </TouchableOpacity>
             </>
           )}
         </BottomSheetScrollView>
@@ -1610,66 +1603,9 @@ Higher scores = urgent intervention needed.`
   );
 };
 
-const AnimatedWeekRow = ({ step, weekStart, weekEnd, index }: { step: string; weekStart: number; weekEnd: number; index: number }) => {
-  const animValue = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    Animated.timing(animValue, {
-      toValue: 1,
-      duration: 600,
-      delay: index * 150, // Stagger effect
-      useNativeDriver: true,
-      easing: Easing.out(Easing.cubic)
-    }).start();
-  }, [animValue]);
 
-  const translateY = animValue.interpolate({ inputRange: [0, 1], outputRange: [25, 0] });
-  const opacity = animValue;
 
-  return (
-    <Animated.View style={[styles.weekRow, { opacity, transform: [{ translateY }] }]}>
-      <View style={[styles.weekBadge, { backgroundColor: '#1976D2' }]}>
-        <Text style={styles.weekBadgeText}>Week {weekStart}–{weekEnd}</Text>
-      </View>
-      <View style={styles.weekContent}>
-        <Text style={styles.stepText}>{step}</Text>
-      </View>
-    </Animated.View>
-  );
-};
-
-const AnimatedTimelineBtn = ({ onPress }: { onPress: () => void }) => {
-  const translateX = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(translateX, { toValue: 8, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
-        Animated.timing(translateX, { toValue: 0, duration: 800, useNativeDriver: true, easing: Easing.inOut(Easing.ease) })
-      ])
-    ).start();
-  }, [translateX]);
-
-  return (
-    <TouchableOpacity style={styles.timelineDetailBtn} onPress={onPress} activeOpacity={0.7}>
-      <Feather name="calendar" size={14} color="#1976D2" />
-      <Text style={styles.timelineDetailText}>Click here for detailed timeline</Text>
-      <Animated.View style={{ marginLeft: 'auto', transform: [{ translateX }] }}>
-        <Feather name="chevron-right" size={16} color="#1976D2" />
-      </Animated.View>
-    </TouchableOpacity>
-  );
-};
-
-const DetailRow = ({ icon, label, value, color = colors.primaryGreen }: { icon: any; label: string; value?: string; color?: string }) => (
-  <View style={styles.detailRow}>
-    <View style={[styles.detailIconWrap, { backgroundColor: color + '15' }]}><Feather name={icon} size={16} color={color} /></View>
-    <View style={{ flex: 1 }}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <DetailBulletList text={value} accent={color} />
-    </View>
-  </View>
-);
 
 const SelectionCard = ({ icon, title, description, onPress, color }: any) => (
   <TouchableOpacity style={styles.card} onPress={onPress}>
@@ -1696,6 +1632,7 @@ const FormField = ({ label, value, onChangeText, keyboardType = 'default', multi
 );
 
 const DropdownField = ({ label, options, selected, onSelect, placeholder = 'Select an option', minimal = false }: any) => {
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   return (
     <View style={[styles.fieldContainer, minimal && { marginBottom: 0 }]}>
@@ -1725,7 +1662,7 @@ const DropdownField = ({ label, options, selected, onSelect, placeholder = 'Sele
                       onPress={() => { onSelect(opt); setIsOpen(false); }}
                     >
                       <Text style={{ ...typography.bodyText, fontSize: 15, color: selected === opt ? colors.primaryGreen : colors.textPrimary, fontWeight: selected === opt ? '700' : '400' }}>
-                        {opt}
+                        {t(`categories.${opt.toLowerCase()}`) !== `categories.${opt.toLowerCase()}` ? t(`categories.${opt.toLowerCase()}`) : opt}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -1744,6 +1681,11 @@ const styles = StyleSheet.create({
   idleScroll: { padding: spacing.lg },
   sectionLabel: { ...typography.captionText, color: colors.textSecondary, fontWeight: '700', marginVertical: spacing.md },
   selectionGrid: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xl },
+  sourceTabsContainer: { flexDirection: 'row', backgroundColor: colors.background, borderRadius: 14, padding: 4, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.textSecondary + '20' },
+  sourceTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 12, gap: 6 },
+  sourceTabActive: { backgroundColor: colors.primaryGreen, elevation: 3, shadowColor: colors.primaryGreen, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+  sourceTabText: { ...typography.bodyText, fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  sourceTabTextActive: { color: '#fff' },
   card: { flex: 1, backgroundColor: colors.cardBackground, borderRadius: 16, padding: spacing.md, alignItems: 'center', elevation: 2 },
   iconWrapper: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.sm },
   cardTitle: { ...typography.bodyText, fontWeight: '700', textAlign: 'center' },
@@ -1900,6 +1842,13 @@ const styles = StyleSheet.create({
   schemeCard: { backgroundColor: '#1976D210', borderRadius: 12, padding: spacing.md, marginBottom: spacing.md, borderLeftWidth: 3, borderLeftColor: '#1976D2' },
   schemeName: { ...typography.bodyText, fontWeight: '800', color: '#0D47A1', flex: 1 },
   schemeReason: { ...typography.captionText, color: colors.textPrimary, lineHeight: 18, fontSize: 12 },
+  
+  premiumAudioContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.primaryGreen + '20', marginTop: 10, marginBottom: 12 },
+  audioPlayBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primaryGreen, justifyContent: 'center', alignItems: 'center', marginRight: 12, elevation: 2 },
+  citizenDescBox: { padding: spacing.md, backgroundColor: colors.background, borderRadius: 14, borderWidth: 1, borderColor: colors.textSecondary + '20' },
+  citizenDescText: { ...typography.bodyText, color: colors.textPrimary, marginTop: 4, lineHeight: 22 },
+  attachmentImageWrapper: { width: '31%', aspectRatio: 1, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: colors.textSecondary + '20' },
+  attachmentImage: { width: '100%', height: '100%' },
 });
 
 // Styles for field report viewer

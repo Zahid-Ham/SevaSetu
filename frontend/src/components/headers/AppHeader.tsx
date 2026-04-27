@@ -30,6 +30,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               iconName="arrow-left"
               onPress={onBackPress || (() => {})}
               style={styles.backButton}
+              iconColor={colors.navyBlue}
             />
           )}
         </View>
@@ -43,9 +44,15 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <IconButton
               iconName={rightIcon as any}
               onPress={onRightPress}
+              iconColor={colors.navyBlue}
             />
           )}
         </View>
+      </View>
+      <View style={styles.tricolorAccent}>
+        <View style={[styles.barSegment, { backgroundColor: '#FF8C42' }]} />
+        <View style={[styles.barSegment, { backgroundColor: '#FFFFFF' }]} />
+        <View style={[styles.barSegment, { backgroundColor: '#138808' }]} />
       </View>
     </View>
   );
@@ -53,30 +60,46 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.textSecondary + '20',
+    backgroundColor: colors.warmWhite,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
   },
   headerContent: {
-    height: 56,
+    height: 60,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   leftContainer: {
-    width: 40,
+    width: 44,
     alignItems: 'flex-start',
   },
   rightContainer: {
-    width: 40,
+    width: 44,
     alignItems: 'flex-end',
   },
   backButton: {
-    marginLeft: -spacing.sm,
+    marginLeft: -spacing.xs,
   },
   title: {
     flex: 1,
     textAlign: 'center',
+    color: colors.navyBlue,
+    fontWeight: '800',
+    fontSize: 18,
+  },
+  tricolorAccent: {
+    flexDirection: 'row',
+    height: 3,
+    width: '100%',
+  },
+  barSegment: {
+    flex: 1,
+    height: '100%',
   },
 });
+

@@ -1,21 +1,27 @@
 import React from 'react';
 import { View, ScrollView, Text, StyleSheet } from 'react-native';
-import { GradientBackground, SectionTitle, MissionCard, StatCard, GradientButton, UserAvatar } from '../../components';
+import { GradientBackground, SectionTitle, MissionCard, StatCard, GradientButton, UserAvatar, DynamicText } from '../../components';
 import { colors, spacing, typography } from '../../theme';
 import { MOCK_CITIZEN_STATS, MOCK_MISSIONS } from '../../services/mock';
+import { useAuthStore } from '../../services/store/useAuthStore';
+import { useLanguage } from '../../context/LanguageContext';
 
 export const HomeScreen = () => {
-  const recentMissions = MOCK_MISSIONS.slice(0, 1); // Get 1 sample mission
-  const userName = "Zahid Khan"; // Placeholder name
+  const { user } = useAuthStore();
+  const { t } = useLanguage();
+  const recentMissions = MOCK_MISSIONS.slice(0, 1);
+  const userName = user?.name || t('auth.roles.CITIZEN');
 
   return (
     <GradientBackground variant="dashboard" style={styles.container}>
       <View style={styles.headerContent}>
         <View style={styles.greetingHeader}>
-          <Text style={styles.greetingText}>Good Morning,</Text>
-          <Text style={typography.headingMedium}>{userName}</Text>
+          <Text style={styles.greetingText}>{t('citizen.home.greeting')}</Text>
+          <DynamicText text={userName} style={styles.userNameText} />
         </View>
-        <UserAvatar name={userName} size={48} />
+        <View style={styles.avatarWrapper}>
+          <UserAvatar name={userName} size={54} />
+        </View>
       </View>
 
       <ScrollView 
@@ -24,29 +30,31 @@ export const HomeScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.mainContent}>
-          <SectionTitle title="Quick Actions" />
+          <SectionTitle title={t('citizen.home.quickActions')} />
           <View style={styles.quickActions}>
             <GradientButton 
-              title="Report Issue" 
+              title={t('citizen.home.reportIssue')} 
               icon="alert-circle"
               onPress={() => {}} 
               style={{ flex: 1, marginRight: spacing.sm }} 
             />
             <GradientButton 
-              title="Request Help" 
+              title={t('citizen.home.requestHelp')} 
               icon="life-buoy"
               onPress={() => {}} 
               style={{ flex: 1, marginLeft: spacing.sm }} 
             />
           </View>
 
-          <SectionTitle title="Your Recent Activity" />
-          <StatCard title="Issues Reported" value={MOCK_CITIZEN_STATS.issuesReported} iconName="alert-circle" style={styles.card} />
-          <StatCard title="Help Requests" value={MOCK_CITIZEN_STATS.helpRequests} iconName="life-buoy" iconColor={colors.accentBlue} style={styles.card} />
+          <SectionTitle title={t('citizen.home.recentActivity')} />
+          <View style={styles.statsRow}>
+            <StatCard title={t('citizen.home.issuesReported')} value={MOCK_CITIZEN_STATS.issuesReported} iconName="alert-circle" style={styles.card} />
+            <StatCard title={t('citizen.home.helpRequests')} value={MOCK_CITIZEN_STATS.helpRequests} iconName="life-buoy" iconColor={colors.accentBlue} style={styles.card} />
+          </View>
 
-          <SectionTitle title="Local Updates" />
+          <SectionTitle title={t('citizen.home.localUpdates')} />
           {recentMissions.map(m => (
-            <View key={m.id} style={{ paddingHorizontal: spacing.md }}>
+            <View key={m.id} style={{ paddingHorizontal: spacing.xl }}>
               <MissionCard 
                 title={m.title}
                 description={m.description}
@@ -65,14 +73,15 @@ export const HomeScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F8F9FA',
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
-    paddingTop: 80,
-    height: 180,
+    paddingTop: 60,
+    height: 200,
     zIndex: 1,
   },
   greetingHeader: {
@@ -80,8 +89,21 @@ const styles = StyleSheet.create({
   },
   greetingText: {
     ...typography.bodyText,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  userNameText: {
+    ...typography.headingMedium,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 26,
+  },
+  avatarWrapper: {
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 30,
+    padding: 2,
   },
   scrollView: {
     flex: 1,
@@ -92,23 +114,29 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     paddingTop: spacing.xl,
     minHeight: 600,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
+    shadowOffset: { width: 0, height: -10 },
     shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowRadius: 20,
+    elevation: 10,
   },
   quickActions: {
     flexDirection: 'row',
     paddingHorizontal: spacing.xl,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.xl,
+    gap: spacing.md,
+    marginBottom: spacing.lg,
   },
   card: {
-    marginHorizontal: spacing.xl,
-    marginBottom: spacing.md,
+    flex: 1,
   },
 });
+

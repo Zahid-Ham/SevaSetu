@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { AppHeader } from '../../components';
+import { useLanguage } from '../../context/LanguageContext';
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -38,6 +39,9 @@ export const AvailabilityScreen = ({ navigation }: any) => {
   const [isDirty, setIsDirty] = useState(false);
 
   const { volunteerProfile, loadVolunteerProfile, saveVolunteerProfile, loadingAction, volunteerId } = useEventStore();
+  const { t } = useLanguage();
+  const MONTHS = t('calendar.months', { returnObjects: true }) || ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAYS_OF_WEEK = t('calendar.days', { returnObjects: true }) || ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   useEffect(() => {
     loadVolunteerProfile(volunteerId);
@@ -112,7 +116,7 @@ export const AvailabilityScreen = ({ navigation }: any) => {
       available_dates: Array.from(selectedDates),
     });
     setIsDirty(false);
-    Alert.alert('Saved!', 'Your availability has been updated.');
+    Alert.alert(t('volunteer.availability.saved'), t('volunteer.availability.updated'));
   };
 
   // Build calendar grid
@@ -128,14 +132,14 @@ export const AvailabilityScreen = ({ navigation }: any) => {
   // Pad to complete last row
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const selectedInThisMonth = Array.from(selectedDates).filter((d) =>
+  const selectedInThisMonth = Array.from(selectedDates).filter((d: string) =>
     d.startsWith(`${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`)
   ).length;
 
   return (
     <View style={styles.container}>
       <AppHeader 
-        title="My Availability" 
+        title={t('volunteer.availability.title')} 
         showBack={true} 
         onBackPress={() => navigation.goBack()} 
       />
@@ -146,7 +150,7 @@ export const AvailabilityScreen = ({ navigation }: any) => {
         <View style={[globalStyles.card, styles.infoCard]}>
           <Feather name="info" size={16} color={colors.accentBlue} />
           <Text style={styles.infoText}>
-            Tap dates you're available. The assignment engine uses this to match you with upcoming events.
+            {t('volunteer.availability.info')}
           </Text>
         </View>
 
@@ -158,7 +162,7 @@ export const AvailabilityScreen = ({ navigation }: any) => {
             </TouchableOpacity>
             <View style={styles.monthTitleGroup}>
               <Text style={styles.monthTitle}>{MONTHS[viewMonth]} {viewYear}</Text>
-              <Text style={styles.monthSub}>{selectedInThisMonth} days selected</Text>
+              <Text style={styles.monthSub}>{selectedInThisMonth} {t('volunteer.availability.daysSelected')}</Text>
             </View>
             <TouchableOpacity onPress={() => navigateMonth(1)} style={styles.navBtn}>
               <Feather name="chevron-right" size={22} color={colors.textPrimary} />
@@ -168,10 +172,10 @@ export const AvailabilityScreen = ({ navigation }: any) => {
           {/* Quick actions */}
           <View style={styles.quickRow}>
             <TouchableOpacity style={styles.quickBtn} onPress={selectAllweekdays}>
-              <Text style={styles.quickBtnText}>All Weekdays</Text>
+              <Text style={styles.quickBtnText}>{t('volunteer.availability.allWeekdays')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.quickBtn, styles.quickBtnRed]} onPress={clearMonth}>
-              <Text style={[styles.quickBtnText, { color: colors.error }]}>Clear Month</Text>
+              <Text style={[styles.quickBtnText, { color: colors.error }]}>{t('volunteer.availability.clearMonth')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -226,24 +230,24 @@ export const AvailabilityScreen = ({ navigation }: any) => {
         <View style={styles.legendRow}>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: colors.primaryGreen }]} />
-            <Text style={styles.legendText}>Available</Text>
+            <Text style={styles.legendText}>{t('calendar.available')}</Text>
           </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: '#E0E0E0' }]} />
-            <Text style={styles.legendText}>Not selected</Text>
+            <Text style={styles.legendText}>{t('calendar.notSelected')}</Text>
           </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: colors.primarySaffron, borderWidth: 2, borderColor: colors.primarySaffron }]} />
-            <Text style={styles.legendText}>Today</Text>
+            <Text style={styles.legendText}>{t('calendar.today')}</Text>
           </View>
         </View>
 
         {/* Summary */}
         {selectedDates.size > 0 && (
           <View style={[globalStyles.card, styles.summaryCard]}>
-            <Text style={styles.summaryTitle}>📅 Total Available Days</Text>
+            <Text style={styles.summaryTitle}>📅 {t('volunteer.availability.totalDays')}</Text>
             <Text style={styles.summaryCount}>{selectedDates.size}</Text>
-            <Text style={styles.summarySub}>across all months</Text>
+            <Text style={styles.summarySub}>{t('volunteer.availability.acrossMonths')}</Text>
           </View>
         )}
 
@@ -260,7 +264,7 @@ export const AvailabilityScreen = ({ navigation }: any) => {
           >
             {loadingAction
               ? <ActivityIndicator color="#fff" />
-              : <><Feather name="save" size={18} color="#fff" /><Text style={styles.saveBtnText}>Save Availability</Text></>
+              : <><Feather name="save" size={18} color="#fff" /><Text style={styles.saveBtnText}>{t('volunteer.availability.save')}</Text></>
             }
           </LinearGradient>
         </TouchableOpacity>

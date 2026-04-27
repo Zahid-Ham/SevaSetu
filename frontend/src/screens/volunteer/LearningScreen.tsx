@@ -1,39 +1,54 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, Linking, Alert } from 'react-native';
 import { AppHeader, SectionTitle, ImpactCard } from '../../components';
 import { colors, spacing } from '../../theme';
+import { useLanguage } from '../../context/LanguageContext';
+import { MOCK_LEARNING_RESOURCES } from '../../services/mock';
 
 export const LearningScreen = () => {
+  const { t } = useLanguage();
+
+  const handleOpenResource = (link: string) => {
+    Linking.canOpenURL(link).then(supported => {
+      if (supported) {
+        Linking.openURL(link);
+      } else {
+        Alert.alert(t('common.error'), "Cannot open this resource link.");
+      }
+    });
+  };
+
+  const requiredModules = MOCK_LEARNING_RESOURCES.filter(r => r.isRequired);
+  const recommendedResources = MOCK_LEARNING_RESOURCES.filter(r => !r.isRequired);
+
   return (
     <View style={styles.container}>
-      <AppHeader title="Training & Resources" />
+      <AppHeader title={t('volunteer.learning.title')} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SectionTitle title="Required Modules" />
+        <SectionTitle title={t('volunteer.learning.requiredModules')} />
         <View style={styles.listContainer}>
-          <ImpactCard 
-            title="Code of Conduct"
-            metric="Module 1"
-            date="Estimated: 15 mins"
-          />
-          <ImpactCard 
-            title="Privacy Guidelines"
-            metric="Module 2"
-            date="Estimated: 20 mins"
-          />
+          {requiredModules.map(resource => (
+            <ImpactCard 
+              key={resource.id}
+              title={resource.title}
+              metric={resource.category}
+              date={resource.duration}
+              onPress={() => handleOpenResource(resource.link)}
+            />
+          ))}
         </View>
 
-        <SectionTitle title="Recommended Resources" />
+        <SectionTitle title={t('volunteer.learning.recommendedResources')} />
         <View style={styles.listContainer}>
-          <ImpactCard 
-            title="Handling Emergency Situations"
-            metric="Video Guide"
-            date="10 mins read"
-          />
-          <ImpactCard 
-            title="Using the SevaSetu App"
-            metric="Interactive Tutorial"
-            date="5 mins read"
-          />
+          {recommendedResources.map(resource => (
+            <ImpactCard 
+              key={resource.id}
+              title={resource.title}
+              metric={resource.category}
+              date={resource.duration}
+              onPress={() => handleOpenResource(resource.link)}
+            />
+          ))}
         </View>
       </ScrollView>
     </View>

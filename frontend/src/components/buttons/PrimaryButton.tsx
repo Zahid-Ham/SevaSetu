@@ -14,6 +14,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, typography } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -62,33 +63,47 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
         onPressOut={handlePressOut}
         onPress={handlePress}
         disabled={disabled}
-        style={() => [styles.button, disabled && styles.disabled]}
+        style={({ pressed }) => [
+          styles.buttonContainer,
+          disabled && styles.disabled
+        ]}
       >
-        <View style={styles.contentRow}>
-          {iconName && (
-            <Ionicons name={iconName} size={20} color={colors.cardBackground} style={styles.icon} />
-          )}
-          <Text style={[styles.text, textStyle]}>{title}</Text>
-        </View>
+        <LinearGradient
+          colors={disabled ? [colors.textSecondary, colors.textSecondary] : [colors.primarySaffron, colors.saffronDeep]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.gradient}
+        >
+          <View style={styles.contentRow}>
+            {iconName && (
+              <Ionicons name={iconName} size={20} color={colors.cardBackground} style={styles.icon} />
+            )}
+            <Text style={[styles.text, textStyle]}>{title}</Text>
+          </View>
+        </LinearGradient>
       </Pressable>
     </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
-  button: {
-    backgroundColor: colors.primarySaffron,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  buttonContainer: {
+    borderRadius: 14,
+    overflow: 'hidden',
     shadowColor: colors.primarySaffron,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
+  gradient: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+
   contentRow: {
     flexDirection: 'row',
     alignItems: 'center',

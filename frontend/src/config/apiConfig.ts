@@ -7,10 +7,14 @@ import Constants from 'expo-constants';
  * Otherwise, it defaults to the Android emulator loopback or a fallback.
  */
 const getBaseUrl = () => {
+  // Use Production URL if explicitly set in .env
+  if (process.env.EXPO_PUBLIC_USE_PRODUCTION === 'true') {
+    return process.env.EXPO_PUBLIC_PRODUCTION_API_URL || 'https://sevasetu-api-server-141636692341.asia-south1.run.app';
+  }
+
   const hostUri = Constants.expoConfig?.hostUri;
-  
+
   if (hostUri) {
-    // hostUri usually looks like "192.168.1.10:8081"
     const ip = hostUri.split(':')[0];
     const url = `http://${ip}:8000`;
     console.log(`[API Config] Dynamic URL detected: ${url}`);

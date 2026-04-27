@@ -4,15 +4,14 @@ import { spacing } from './spacing';
 
 export const globalStyles = StyleSheet.create({
   card: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12, // rounded corners
-    padding: spacing.lg, // consistent padding
-    // Soft shadow for iOS
+    backgroundColor: colors.warmWhite,
+    borderRadius: 16,
+    padding: spacing.xl,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    // Soft shadow for Android
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
   },
+
 });

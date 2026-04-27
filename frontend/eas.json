@@ -12,9 +12,11 @@
       "android": {
         "buildType": "apk",
         "image": "latest"
+      },
+      "env": {
+        "EXPO_PUBLIC_USE_PRODUCTION": "true"
       }
-    },
-    "production": {}
+    }
   },
   "submit": {
     "production": {}

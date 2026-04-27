@@ -83,3 +83,13 @@ async def review_request(request_id: str, update: RequestUpdate):
         return {"message": "Failed to update request"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/ngos/{ngo_id}/volunteers")
+async def list_ngo_volunteers(ngo_id: str):
+    """
+    Lists all active volunteers for a specific NGO.
+    """
+    try:
+        from app.services.ngo_service import get_ngo_volunteers
+        return get_ngo_volunteers(ngo_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

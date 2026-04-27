@@ -7,34 +7,41 @@ import { RoleSelectionScreen } from '../screens/auth/RoleSelectionScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
 import { OtpLoginScreen } from '../screens/auth/OtpLoginScreen';
+import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
+import { useAuthStore } from '../services/store/useAuthStore';
 
 export interface AuthNavProps {
-  onSelectRole: (role: 'CITIZEN' | 'VOLUNTEER' | 'SUPERVISOR') => void;
   hasOnboarded: boolean;
 }
 
 const Stack = createNativeStackNavigator();
 
-export const AuthNavigator: React.FC<AuthNavProps> = ({ onSelectRole, hasOnboarded }) => {
+export const AuthNavigator: React.FC<AuthNavProps> = ({ hasOnboarded }) => {
+  const { justLoggedOut, setJustLoggedOut } = useAuthStore();
+
+  React.useEffect(() => {
+    if (justLoggedOut) {
+      // Reset the flag after it's been used for initial routing
+      const timer = setTimeout(() => {
+        setJustLoggedOut(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [justLoggedOut]);
+
   return (
     <Stack.Navigator 
-      initialRouteName={hasOnboarded ? "Landing" : "SplashScreen"} 
+      initialRouteName={justLoggedOut ? "RoleSelection" : "SplashScreen"} 
       screenOptions={{ headerShown: false }}
     >
-      <Stack.Screen name="SplashScreen" component={SplashScreen} />
-      <Stack.Screen name="OnboardingScreen" component={OnboardingScreen} />
+      {!justLoggedOut && <Stack.Screen name="SplashScreen" component={SplashScreen} />}
+      {!justLoggedOut && <Stack.Screen name="OnboardingScreen" component={OnboardingScreen} />}
       <Stack.Screen name="Landing" component={LandingScreen} />
-      {/* We uniquely pass onSelectRole via children since screen props are easier handled this way directly */}
       <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
-      <Stack.Screen name="Login">
-        {() => <LoginScreen onSelectRole={onSelectRole} />}
-      </Stack.Screen>
-      <Stack.Screen name="OtpLogin">
-        {() => <OtpLoginScreen onSelectRole={onSelectRole} />}
-      </Stack.Screen>
-      <Stack.Screen name="Register">
-        {() => <RegisterScreen onSelectRole={onSelectRole} />}
-      </Stack.Screen>
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="OtpLogin" component={OtpLoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 };

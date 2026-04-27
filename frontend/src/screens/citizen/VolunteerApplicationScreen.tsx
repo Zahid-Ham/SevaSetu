@@ -14,22 +14,14 @@ import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { AppHeader, PrimaryButton, GradientBackground } from '../../components';
+import { AppHeader, PrimaryButton, GradientBackground, DynamicText } from '../../components';
 import { useNgoStore } from '../../services/store/useNgoStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { useLanguage } from '../../context/LanguageContext';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const ALL_SKILLS = [
-  { id: 'first_aid', label: 'First Aid', icon: '🩺' },
-  { id: 'medical', label: 'Medical', icon: '💊' },
-  { id: 'logistics', label: 'Logistics', icon: '📦' },
-  { id: 'driving', label: 'Driving', icon: '🚗' },
-  { id: 'teaching', label: 'Teaching', icon: '📚' },
-  { id: 'cooking', label: 'Cooking', icon: '🍳' },
-  { id: 'documentation', label: 'Documentation', icon: '📝' },
-];
-
 export const VolunteerApplicationScreen = () => {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const { ngos, loadNgos, submitRequest, loading, userRequest, loadUserRequest } = useNgoStore();
   const { role, user, setRole } = useAuthStore();
@@ -41,6 +33,16 @@ export const VolunteerApplicationScreen = () => {
   const [gpsCoordinates, setGpsCoordinates] = useState('');
   const [isLocating, setIsLocating] = useState(false);
   const [showNgoSelector, setShowNgoSelector] = useState(false);
+
+  const ALL_SKILLS = [
+    { id: 'first_aid', key: 'first_aid', icon: '🩺' },
+    { id: 'medical', key: 'medical', icon: '💊' },
+    { id: 'logistics', key: 'logistics', icon: '📦' },
+    { id: 'driving', key: 'driving', icon: '🚗' },
+    { id: 'teaching', key: 'teaching', icon: '📚' },
+    { id: 'cooking', key: 'cooking', icon: '🍳' },
+    { id: 'documentation', key: 'documentation', icon: '📝' },
+  ];
 
   useEffect(() => {
     loadNgos();
@@ -55,7 +57,7 @@ export const VolunteerApplicationScreen = () => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Please enable location permissions to auto-detect your area.');
+        Alert.alert(t('common.error'), t('citizen.volunteerApplication.incompleteFormMsg'));
         setIsLocating(false);
         return;
       }
@@ -92,7 +94,7 @@ export const VolunteerApplicationScreen = () => {
 
   const handleSubmit = async () => {
     if (!selectedNgo || !motivation || selectedSkills.length === 0 || !area) {
-      Alert.alert('Incomplete Form', 'Please fill in all fields before submitting.');
+      Alert.alert(t('citizen.volunteerApplication.incompleteForm'), t('citizen.volunteerApplication.incompleteFormMsg'));
       return;
     }
 
@@ -110,18 +112,18 @@ export const VolunteerApplicationScreen = () => {
       // Refresh the local request state
       if (user?.id) loadUserRequest(user.id);
       Alert.alert(
-        'Application Submitted!',
-        'Your request has been sent to the NGO Supervisor. You will be notified once they review it.',
-        [{ text: 'Great' }]
+        t('citizen.volunteerApplication.applicationSubmitted'),
+        t('citizen.volunteerApplication.applicationSubmittedMsg'),
+        [{ text: t('common.ok') }]
       );
     } catch (err) {
-      Alert.alert('Error', 'Failed to submit application. Please try again.');
+      Alert.alert(t('common.error'), t('common.error'));
     }
   };
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Become a Volunteer" />
+      <AppHeader title={t('citizen.volunteerApplication.title')} />
       <GradientBackground style={{ flex: 1 }}>
         {userRequest ? (
           <View style={styles.statusContainer}>
@@ -133,26 +135,24 @@ export const VolunteerApplicationScreen = () => {
                   color={getStatusColor(userRequest.status)} 
                 />
               </View>
-              <Text style={styles.statusTitle}>Application {userRequest.status.toLowerCase()}</Text>
+              <Text style={styles.statusTitle}>{t(`citizen.volunteerApplication.status.${userRequest.status}`)}</Text>
               <Text style={styles.statusNgo}>{userRequest.ngo_name}</Text>
               
               <View style={styles.statusDivider} />
               
               {userRequest.status === 'PENDING' && (
                 <Text style={styles.statusDesc}>
-                  Your application is currently being reviewed by the NGO supervisor. 
-                  Typically this takes 24-48 hours.
+                  {t('citizen.volunteerApplication.pendingDesc')}
                 </Text>
               )}
 
               {userRequest.status === 'APPROVED' && (
                 <>
                   <Text style={[styles.statusDesc, { color: colors.success }]}>
-                    Congratulations! You are now a verified volunteer for {userRequest.ngo_name}. 
-                    You can now access missions and coordinate with your supervisor.
+                    {t('citizen.volunteerApplication.approvedDesc')}
                   </Text>
                   <PrimaryButton 
-                    title="Start Volunteering" 
+                    title={t('citizen.volunteerApplication.startVolunteering')} 
                     onPress={() => setRole('VOLUNTEER')} 
                     style={{ marginTop: spacing.lg }} 
                   />
@@ -162,11 +162,10 @@ export const VolunteerApplicationScreen = () => {
               {userRequest.status === 'REJECTED' && (
                 <>
                   <Text style={[styles.statusDesc, { color: colors.error }]}>
-                    Unfortunately, your application was not accepted at this time. 
-                    You can try applying to a different NGO.
+                    {t('citizen.volunteerApplication.rejectedDesc')}
                   </Text>
                   <PrimaryButton 
-                    title="Apply Elsewhere" 
+                    title={t('citizen.volunteerApplication.applyElsewhere')} 
                     onPress={() => navigation.goBack()} 
                     style={{ marginTop: spacing.lg }} 
                   />
@@ -182,20 +181,20 @@ export const VolunteerApplicationScreen = () => {
               <View style={[styles.stepCircle, styles.activeStep]}>
                 <Text style={styles.stepNumber}>1</Text>
               </View>
-              <Text style={styles.stepText}>Choose NGO</Text>
+              <Text style={styles.stepText}>{t('citizen.volunteerApplication.chooseNgo')}</Text>
             </View>
             <View style={styles.stepDivider} />
             <View style={styles.stepContainer}>
               <View style={styles.stepCircle}>
                 <Text style={styles.stepNumber}>2</Text>
               </View>
-              <Text style={styles.stepText}>Approval</Text>
+              <Text style={styles.stepText}>{t('citizen.volunteerApplication.approval')}</Text>
             </View>
           </View>
 
           {/* Form Card */}
           <View style={[globalStyles.card, styles.formCard]}>
-            <Text style={styles.sectionTitle}>Select NGO</Text>
+            <Text style={styles.sectionTitle}>{t('citizen.volunteerApplication.selectNgo')}</Text>
             <TouchableOpacity
               style={styles.dropdownHeader}
               onPress={() => setShowNgoSelector(!showNgoSelector)}
@@ -203,7 +202,7 @@ export const VolunteerApplicationScreen = () => {
               <View style={styles.ngoInfo}>
                 <Feather name="home" size={18} color={selectedNgo ? colors.primaryGreen : colors.textSecondary} />
                 <Text style={[styles.dropdownText, !selectedNgo && { color: colors.textSecondary + '80' }]}>
-                  {selectedNgo ? selectedNgo.name : 'Select the NGO you want to join'}
+                  {selectedNgo ? selectedNgo.name : t('citizen.volunteerApplication.selectNgoPlaceholder')}
                 </Text>
               </View>
               <Ionicons name={showNgoSelector ? 'chevron-up' : 'chevron-down'} size={20} color={colors.textSecondary} />
@@ -220,11 +219,9 @@ export const VolunteerApplicationScreen = () => {
                       setShowNgoSelector(false);
                     }}
                   >
-                    <View>
-                      <Text style={[styles.ngoName, selectedNgo?.id === ngo.id && styles.ngoTextSelected]}>
-                        {ngo.name}
-                      </Text>
-                      <Text style={styles.ngoCity}>{ngo.city}</Text>
+                    <View style={{ flex: 1 }}>
+                      <DynamicText text={ngo.name} style={[styles.ngoName, selectedNgo?.id === ngo.id && styles.ngoTextSelected]} />
+                      <DynamicText text={ngo.city} style={styles.ngoCity} />
                     </View>
                     {selectedNgo?.id === ngo.id && <Ionicons name="checkmark-circle" size={20} color={colors.primaryGreen} />}
                   </TouchableOpacity>
@@ -232,29 +229,35 @@ export const VolunteerApplicationScreen = () => {
               </View>
             )}
 
-            <Text style={styles.sectionTitle}>Why do you want to join?</Text>
+            <Text style={styles.sectionTitle}>{t('citizen.volunteerApplication.whyJoin')}</Text>
             <View style={styles.textAreaContainer}>
               <TextInput
                 style={styles.textArea}
                 multiline
                 numberOfLines={4}
-                placeholder="Briefly describe your motivation and past experience..."
+                placeholder={t('citizen.volunteerApplication.motivationPlaceholder')}
                 placeholderTextColor={colors.textSecondary + '80'}
                 value={motivation}
                 onChangeText={setMotivation}
               />
             </View>
 
-            <Text style={styles.sectionTitle}>Your Area</Text>
+            <Text style={styles.sectionTitle}>{t('citizen.volunteerApplication.yourArea')}</Text>
             <View style={styles.inputContainer}>
               <Feather name="map-pin" size={18} color={colors.textSecondary} style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder={isLocating ? "Detecting location..." : "e.g. South Delhi, Rohini"}
-                placeholderTextColor={colors.textSecondary + '80'}
-                value={area}
-                onChangeText={setArea}
-              />
+              {area ? (
+                <View style={{ flex: 1 }}>
+                  <DynamicText text={area} style={[styles.textInput, { height: 'auto', textAlignVertical: 'center' }]} />
+                </View>
+              ) : (
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={isLocating ? t('citizen.volunteerApplication.detectingLocation') : "e.g. South Delhi, Rohini"}
+                  placeholderTextColor={colors.textSecondary + '80'}
+                  value={area}
+                  onChangeText={setArea}
+                />
+              )}
               {isLocating ? (
                 <ActivityIndicator size="small" color={colors.primaryGreen} />
               ) : (
@@ -267,7 +270,7 @@ export const VolunteerApplicationScreen = () => {
               <Text style={styles.gpsText}>GPS: {gpsCoordinates}</Text>
             ) : null}
 
-            <Text style={styles.sectionTitle}>Select Your Skills</Text>
+            <Text style={styles.sectionTitle}>{t('citizen.volunteerApplication.selectSkills')}</Text>
             <View style={styles.skillsGrid}>
               {ALL_SKILLS.map((skill) => {
                 const isSelected = selectedSkills.includes(skill.id);
@@ -283,12 +286,12 @@ export const VolunteerApplicationScreen = () => {
                         style={styles.skillGradient}
                       >
                         <Text style={styles.skillEmoji}>{skill.icon}</Text>
-                        <Text style={styles.skillTextActive}>{skill.label}</Text>
+                        <Text style={styles.skillTextActive}>{t(`citizen.volunteerApplication.skills.${skill.key}`)}</Text>
                       </LinearGradient>
                     ) : (
                       <>
                         <Text style={styles.skillEmoji}>{skill.icon}</Text>
-                        <Text style={styles.skillText}>{skill.label}</Text>
+                        <Text style={styles.skillText}>{t(`citizen.volunteerApplication.skills.${skill.key}`)}</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -297,7 +300,7 @@ export const VolunteerApplicationScreen = () => {
             </View>
 
             <PrimaryButton
-              title={loading ? 'Submitting...' : 'Submit Application'}
+              title={loading ? t('citizen.volunteerApplication.submittingApplication') : t('citizen.volunteerApplication.submitApplication')}
               onPress={handleSubmit}
               style={styles.submitBtn}
               disabled={loading}
@@ -462,7 +465,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#F9F9F9',
     paddingHorizontal: spacing.md,
-    height: 52,
+    minHeight: 54,
+    paddingVertical: spacing.sm,
   },
   inputIcon: {
     marginRight: spacing.sm,

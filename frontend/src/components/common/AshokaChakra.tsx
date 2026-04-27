@@ -8,15 +8,17 @@ interface AshokaChakraProps {
   size?: number;
   opacity?: number;
   color?: string;
+  style?: any;
 }
 
 export const AshokaChakra = ({ 
-  size = width * 1.5, 
+  size = 100, 
   opacity = 0.12, 
-  color = "#000080" 
+  color = "#000080",
+  style
 }: AshokaChakraProps) => {
   const center = size / 2;
-  const radius = center - 20;
+  const radius = center - 5;
 
   const spokes = Array.from({ length: 24 }).map((_, i) => {
     const angle = (i * 360) / 24;
@@ -28,36 +30,35 @@ export const AshokaChakra = ({
           x2={center} 
           y2={center - radius} 
           stroke={color} 
-          strokeWidth="2" 
+          strokeWidth={size * 0.02} 
           opacity={opacity * 2} 
         />
       </G>
     );
   });
 
+  // Safety check: if Svg or needed components are missing (native module error), 
+  // we return a standard View with a similar aesthetic to avoid crashing the whole app.
+  if (!Svg || !Circle) {
+    return (
+      <View style={[styles.container, style, { width: size, height: size, borderRadius: size/2, borderStyle: 'dashed', borderWidth: 2, borderColor: color, opacity: opacity }]} />
+    );
+  }
+
   return (
-    <View style={styles.container} pointerEvents="none">
-      <Svg width={size} height={size}>
+    <View style={[styles.container, style]} pointerEvents="none">
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <Circle 
           cx={center} 
           cy={center} 
           r={radius} 
           stroke={color} 
-          strokeWidth="4" 
-          fill="transparent" 
-          opacity={opacity} 
-        />
-        <Circle 
-          cx={center} 
-          cy={center} 
-          r={radius * 0.8} 
-          stroke={color} 
-          strokeWidth="1" 
+          strokeWidth={size * 0.04} 
           fill="transparent" 
           opacity={opacity} 
         />
         {spokes}
-        <Circle cx={center} cy={center} r={10} fill={color} opacity={opacity * 2} />
+        <Circle cx={center} cy={center} r={size * 0.08} fill={color} opacity={opacity * 2} />
       </Svg>
     </View>
   );
@@ -65,7 +66,6 @@ export const AshokaChakra = ({
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
   },

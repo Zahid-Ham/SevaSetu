@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends # type: ignore
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks # type: ignore
 from pydantic import BaseModel # type: ignore
 from typing import Optional, List
 from app.services import event_firestore_service, gemini_service
+from app.services.certificate_service import check_and_award_badges, check_and_issue_certificates # type: ignore
 
 router = APIRouter()
 
@@ -67,13 +68,25 @@ async def submit_task(task_id: str, payload: TaskUpdatePayload):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/tasks/{task_id}/approve")
-async def approve_task(task_id: str):
+async def approve_task(task_id: str, background_tasks: BackgroundTasks):
     """Supervisor approves a task, marking it as completed."""
     try:
         event_firestore_service.update_task_status(
             task_id=task_id,
             status="completed"
         )
+        
+        # Recognition Hook
+        try:
+            task = event_firestore_service.get_task(task_id)
+            if task and task.get('assigned_to'):
+                v_id = task.get('assigned_to')
+                print(f"[Task Routes] Triggering eligibility check for volunteer: {v_id}")
+                background_tasks.add_task(check_and_award_badges, v_id)
+                background_tasks.add_task(check_and_issue_certificates, v_id)
+        except Exception as e:
+            print(f"[Task Routes] Non-blocking recognition error: {e}")
+
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

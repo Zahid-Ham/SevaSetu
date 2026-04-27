@@ -1,44 +1,53 @@
 import React from 'react';
-import { Modal, View, Image, StyleSheet, TouchableOpacity, Text, Dimensions } from 'react-native';
+import { Modal, View, Image, StyleSheet, TouchableOpacity, Text, Dimensions, TouchableWithoutFeedback } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, typography } from '../../theme';
 
 interface FullImageViewerProps {
   visible: boolean;
-  imageUri: string | null;
+  imageUri: string | null | undefined;
   onClose: () => void;
 }
 
-const { width, height } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('screen');
 
 export const FullImageViewer: React.FC<FullImageViewerProps> = ({ visible, imageUri, onClose }) => {
-  if (!imageUri) return null;
-
   return (
     <Modal
-      visible={visible}
+      visible={visible && !!imageUri}
       transparent={true}
-      animationType="fade"
+      animationType="none"
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
+        {/* Backdrop should capture touches that miss the image */}
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={styles.backdrop} />
+        </TouchableWithoutFeedback>
+        
+        {/* Image Container should not block the close button */}
+        <View style={styles.imageContainer} pointerEvents="box-none">
+          {imageUri && (
+            <Image 
+              source={{ uri: imageUri }} 
+              style={styles.fullImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+
+        {/* Close Button at the top level of the modal */}
         <TouchableOpacity 
           style={styles.closeButton} 
           onPress={onClose}
+          activeOpacity={0.7}
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
         >
-          <Feather name="x" size={32} color="#FFFFFF" />
+          <Feather name="x" size={28} color="#FFFFFF" />
         </TouchableOpacity>
-        
-        <View style={styles.imageContainer}>
-          <Image 
-            source={{ uri: imageUri }} 
-            style={styles.fullImage}
-            resizeMode="contain"
-          />
-        </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.tipText}>Pinch to zoom (Standard Browser Support)</Text>
+        <View style={styles.footer} pointerEvents="none">
+          <Text style={styles.tipText}>Tap anywhere to close</Text>
         </View>
       </View>
     </Modal>
@@ -47,36 +56,51 @@ export const FullImageViewer: React.FC<FullImageViewerProps> = ({ visible, image
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
+    width: screenWidth,
+    height: screenHeight,
+    backgroundColor: 'rgba(0,0,0,0.92)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
   },
   closeButton: {
     position: 'absolute',
-    top: 50,
-    right: 30,
-    zIndex: 10,
-    padding: 10,
-  },
-  imageContainer: {
-    width: width,
-    height: height * 0.8,
+    top: 40,
+    right: 20,
+    zIndex: 999,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 10,
+  },
+  imageContainer: {
+    width: screenWidth,
+    height: screenHeight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   fullImage: {
-    width: '100%',
-    height: '100%',
+    width: screenWidth,
+    height: screenHeight,
   },
   footer: {
     position: 'absolute',
-    bottom: 50,
+    bottom: 40,
     width: '100%',
     alignItems: 'center',
+    zIndex: 100,
   },
   tipText: {
     ...typography.captionText,
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   }
 });

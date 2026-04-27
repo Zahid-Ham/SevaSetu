@@ -14,11 +14,13 @@ from app.services.gemini_service import (
     generate_final_session_report,
     process_document_and_extract
 ) # type: ignore
+from app.services.certificate_service import check_and_award_badges, check_and_issue_certificates # type: ignore
 from app.services.analysis_service import get_previous_complaints_insights # type: ignore
 import cloudinary
 import cloudinary.uploader
 from dotenv import load_dotenv
 import asyncio
+from fastapi import BackgroundTasks # type: ignore
 
 load_dotenv()
 
@@ -33,13 +35,21 @@ cloudinary.config(
 router = APIRouter()
 
 @router.post("/submit-report")
-async def submit_report(report: ReportCreate):
+async def submit_report(report: ReportCreate, background_tasks: BackgroundTasks):
     """
     Endpoint to save a verified report to Firestore.
     """
     try:
         report_dict = report.dict()
         report_id = save_report(report_dict)
+        
+        # --- Recognition Trigger ---
+        v_id = report_dict.get("volunteer_id")
+        if v_id and v_id != 'unknown':
+            print(f"[SUBMIT-REPORT] Triggering eligibility check for volunteer: {v_id}")
+            background_tasks.add_task(check_and_award_badges, v_id)
+            background_tasks.add_task(check_and_issue_certificates, v_id)
+            
         return {
             "success": True,
             "report_id": report_id
@@ -125,9 +135,9 @@ async def process_field_item(
             )
             result["url"] = upload_res["secure_url"]
             result["public_id"] = upload_res["public_id"]
-            print(f"[process-item] ✅ Cloudinary done: {result['url'][:70]}...")
+            print(f"[process-item] (OK) Cloudinary done: {result['url'][:70]}...")
         except Exception as ue:
-            print(f"[process-item] ⚠️ Cloudinary failed: {ue}")
+            print(f"[process-item] (WARN) Cloudinary failed: {ue}")
 
         # Simple label shown in live feed — Gemini will enrich this at report time
         labels = {"audio": "🎤 Voice note uploaded", "image": "📸 Photo uploaded", "video": "🎥 Video uploaded", "pdf": "📄 Document uploaded"}
@@ -142,6 +152,7 @@ async def process_field_item(
 
 @router.post("/field-report/finalize")
 async def finalize_field_report(
+    background_tasks: BackgroundTasks,
     session_details: str = Form(...),
     feed_items: str = Form(...),
     community_inputs: str = Form(...),
@@ -204,7 +215,7 @@ async def finalize_field_report(
                     if resp.status_code == 200:
                         file_bytes = resp.content
                 except Exception as de:
-                    print(f"[FINALIZE] ⚠️ Download error for {fname}: {de}")
+                    print(f"[FINALIZE] (WARN) Download error for {fname}: {de}")
 
             if not file_bytes:
                 return result
@@ -219,7 +230,7 @@ async def finalize_field_report(
                     )
                     result["evidence"]["url"] = upload_res["secure_url"]
                 except Exception as ue:
-                    print(f"[FINALIZE] ⚠️ Cloudinary upload failed: {ue}")
+                    print(f"[FINALIZE] (WARN) Cloudinary upload failed: {ue}")
 
             # --- Prepare Media for Gemini ---
             temp_path = ""
@@ -340,9 +351,16 @@ async def finalize_field_report(
                 )
             
             report_id = save_report(firestore_record)
-            print(f"[FINALIZE] ✅ Saved to Firestore as: {report_id}")
+            print(f"[FINALIZE] (OK) Saved to Firestore as: {report_id}")
+            
+            # --- Phase 4: Recognition ---
+            v_id = details.get("workerId")
+            if v_id:
+                print(f"[FINALIZE] Triggering eligibility check for volunteer: {v_id}")
+                background_tasks.add_task(check_and_award_badges, v_id)
+                background_tasks.add_task(check_and_issue_certificates, v_id)
         except Exception as fs_err:
-            print(f"[FINALIZE] ⚠️ Firestore save failed (non-fatal): {fs_err}")
+            print(f"[FINALIZE] (WARN) Firestore save failed (non-fatal): {fs_err}")
             report_id = None
         
         return {
@@ -395,20 +413,46 @@ async def upload_media(file: UploadFile = File(...)):
 
 
 @router.get("/reports")
-async def get_reports():
+async def get_reports(citizen_id: Optional[str] = None, phone: Optional[str] = None):
     """
-    Endpoint to retrieve all submitted community reports from Firestore.
+    Endpoint to retrieve community reports, optionally filtered by citizen_id or phone.
     """
     try:
-        reports = get_all_reports()
+        all_reports = get_all_reports()
+        
+        if citizen_id:
+            filtered = [r for r in all_reports if r.get("citizen_id") == citizen_id]
+            return {"success": True, "reports": filtered}
+            
+        if phone:
+            filtered = [r for r in all_reports if r.get("phone") == phone]
+            return {"success": True, "reports": filtered}
+
         return {
             "success": True,
-            "reports": reports
+            "reports": all_reports
         }
     except Exception as e:
         print(f"Error in get-reports: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/reports/{report_id}/resolve")
+async def resolve_report(report_id: str):
+    """
+    Marks a report as resolved and sets the resolved_at timestamp.
+    """
+    try:
+        from datetime import datetime
+        update_data = {
+            "status": "Resolved",
+            "resolved_at": datetime.utcnow().isoformat()
+        }
+        db.collection("community_reports").document(report_id).update(update_data)
+        return {"success": True, "message": "Report marked as resolved"}
+    except Exception as e:
+        print(f"Error resolving report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/reports/{report_id}")
 async def delete_report_endpoint(report_id: str):

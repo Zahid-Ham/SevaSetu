@@ -2,38 +2,74 @@
   "expo": {
     "name": "SevaSetu",
     "slug": "SevaSetu",
+    "scheme": "sevasetu",
     "version": "1.0.0",
+    "newArchEnabled": true,
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sevasetu.app",
+      "icon": "./assets/logo.png"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#1A237E",
+        "foregroundImage": "./assets/logo.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "config": {
+        "googleMaps": {
+          "apiKey": ""
+        }
+      },
       "predictiveBackGestureEnabled": false,
-      "package": "com.rarakra.SevaSetu"
+      "package": "com.rarakra.SevaSetu",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow SevaSetu to use your location to map tasks."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow SevaSetu to access your photos for field reports.",
+          "cameraPermission": "Allow SevaSetu to use the camera for scanning documents."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow SevaSetu to use the microphone for audio notes."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "13b3e268-62eb-4381-ba02-dd02de1d661a"
+        "projectId": "72d4ab94-4c65-4a85-9a0e-c05c4a0530ab"
       }
     },
-    "plugins": [
-      "expo-font"
-    ]
+    "owner": "sadboy43"
   }
 }

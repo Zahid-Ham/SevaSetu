@@ -14,6 +14,23 @@ genai.configure(api_key=GEMINI_API_KEY)
 # Initialize Gemini with 2.5-Flash for strategic missions
 model = genai.GenerativeModel('gemini-2.5-flash')
 
+# ─── Bilingual Instruction ────────────────────────────────────────────────────
+# Injected into all prompts so text fields return {"en": "...", "hi": "..."}
+BILINGUAL_INSTRUCTION = """
+BILINGUAL OUTPUT INSTRUCTION (MANDATORY):
+For EVERY text field in the JSON response (string values only — NOT numbers or booleans),
+you MUST return a bilingual object instead of a plain string.
+Format: {"en": "English text here", "hi": "हिंदी अनुवाद यहाँ"}
+
+For arrays of text strings, each ELEMENT must be a bilingual object:
+[{"en": "First point", "hi": "पहला बिंदु"}, ...]
+
+Exception: citizen_name, phone, gps_coordinates, precise_location stay as plain strings.
+Exception: All numeric fields (severity_score, population_affected, etc.) stay as numbers.
+
+IMPORTANT: The Hindi must be accurate, natural, and use proper civic/NGO terminology.
+"""
+
 def process_document_and_extract(file_bytes: bytes, mime_type: str) -> dict:
     """
     Uses Google Gemini Vision to read a document (Image or PDF) and extract 
@@ -22,77 +39,60 @@ def process_document_and_extract(file_bytes: bytes, mime_type: str) -> dict:
     prompt = """
 You are an intelligent social infrastructure surveyor. Analyze the provided document (which could be a handwritten form, a typed report, or an image of an issue) and extract comprehensive structured data.
 
-Extract the following fields. 
-
 CRITICAL INSTRUCTION: Do NOT leave text fields blank or null. If a field is not explicitly mentioned in the document, use your intelligence and the surrounding context to infer, generate, or provide a highly probable and helpful value.
 
-NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'demographic_tally', do NOT guess. Only provide a number if there is direct evidence (e.g., tally marks, "50 people", "10 families"). If no direct evidence is found, return 0 or null.
+NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'demographic_tally', do NOT guess. Only provide a number if there is direct evidence. If no direct evidence is found, return 0 or null.
 
-Metadata:
-- citizen_name (string): Name of the reporter or citizen
-- phone (string): Phone number
-- precise_location (string): Where the problem is
-- gps_coordinates (string): Any mentioned GPS coords
-- demographic_tally (number): Household size or tally marks. Return 0 if not found.
+""" + BILINGUAL_INSTRUCTION + """
 
-Problem Details:
-- executive_summary (string): A concise 1-sentence summary of the entire problem.
-- primary_category (string): Classify into ONE of: Water, Sanitation, Infrastructure, Health, Education, Safety, or Other.
-- sub_category (string): Specific issue (e.g., Piped Water Supply, Roads).
-- problem_status (string): Active/Persistent, Resolved, or Recurring
-- duration_of_problem (string): E.g., '3 weeks', '2 months'. If not mentioned, estimate based on context.
-- urgency_level (string): Immediate, Critical, Moderate, Low
-- service_status (string): Active or Inactive
+Metadata (plain strings — do NOT wrap in bilingual objects):
+- citizen_name (string)
+- phone (string)
+- precise_location (string)
+- gps_coordinates (string)
+- demographic_tally (number)
 
-Impact & Severity:
-- severity_score (number): Calculate a score from 1 to 10 based on the text context (10 being most severe/dangerous)
-- severity_reason (string): Provide a 2-3 sentence logical justification for why this specific score was given.
-- population_affected (number): The number of people affected. DO NOT GUESS. Return 0 or null if not explicitly mentioned or clearly indicated.
-- vulnerable_group (string): Identify the most affected group: women, children, elderly, or disabled.
-- vulnerability_flag (string): High, Medium, Low (based on demographics mentioned like children/elderly)
-- secondary_impact (string): Follow-on effects
+All other text fields MUST be bilingual {"en": ..., "hi": ...} objects:
+- executive_summary, primary_category, sub_category, problem_status,
+  duration_of_problem, urgency_level, service_status,
+  severity_reason, vulnerable_group, vulnerability_flag, secondary_impact,
+  govt_scheme_applicable, ai_recommended_actions, sentiment, key_quote,
+  description, auto_category
 
-Action & Follow-up (AI Predicted):
-- expected_resolution_timeline (list of strings): AI powered prediction of phases (e.g., ["Phase 1: Verification (3 days)", "Phase 2: Approval (7 days)", "Phase 3: Work (14 days)"]).
-- detailed_resolution_steps (list of strings): A more granular, low-level list of 5-7 specific technical or administrative steps required for resolution.
-- govt_scheme_applicable (string): Identify any relevant Indian Government scheme (e.g., Jal Jeevan Mission, PMGSY).
-- ai_recommended_actions (string): 2-3 specific steps that should be taken immediately. USE BULLET POINTS.
+Array fields where EACH element is a bilingual object:
+- expected_resolution_timeline, detailed_resolution_steps, key_complaints
 
-Qualitative:
-- key_complaints (array of strings): 3-5 keywords summarizing complaints
-- sentiment (string): Hopeful, Angry, Desperate, Frustrated, Neutral
-- key_quote (string): A direct quote if applicable
-- description (string): Detailed summary of what was VISUALLY shown in the evidence. Describe setting, people, actions, and specific issues in 3 clear bullet points. Avoid mentioning the fact that it is a photo/file. Focus only on the content.
+Numeric fields (stay as numbers): severity_score, population_affected
 
-Return ONLY valid JSON in this exact structure, nothing else:
+Return ONLY valid JSON:
 {
   "citizen_name": "",
   "phone": "",
   "precise_location": "",
   "gps_coordinates": "",
   "demographic_tally": null,
-  "executive_summary": "",
-  "primary_category": "",
-  "sub_category": "",
-  "problem_status": "",
-  "duration_of_problem": "",
-  "urgency_level": "",
-  "service_status": "",
+  "executive_summary": {"en": "", "hi": ""},
+  "primary_category": {"en": "", "hi": ""},
+  "sub_category": {"en": "", "hi": ""},
+  "problem_status": {"en": "", "hi": ""},
+  "duration_of_problem": {"en": "", "hi": ""},
+  "urgency_level": {"en": "", "hi": ""},
+  "service_status": {"en": "", "hi": ""},
   "severity_score": null,
-  "severity_reason": "",
+  "severity_reason": {"en": "", "hi": ""},
   "population_affected": null,
-  "vulnerable_group": "",
-  "vulnerability_flag": "",
-  "secondary_impact": "",
-  "expected_resolution_timeline": [],
-  "detailed_resolution_steps": [],
-  "govt_scheme_applicable": "",
-  "ai_recommended_actions": "",
-  "key_complaints": [],
-  "sentiment": "",
-  "key_quote": "",
-  "description": "",
-  "auto_category": ""
+  "vulnerable_group": {"en": "", "hi": ""},
+  "vulnerability_flag": {"en": "", "hi": ""},
+  "secondary_impact": {"en": "", "hi": ""},
+  "expected_resolution_timeline": [{"en": "", "hi": ""}],
+  "detailed_resolution_steps": [{"en": "", "hi": ""}],
+  "govt_scheme_applicable": {"en": "", "hi": ""},
+  "ai_recommended_actions": {"en": "", "hi": ""},
+  "key_complaints": [{"en": "", "hi": ""}],
+  "sentiment": {"en": "", "hi": ""},
+  "key_quote": {"en": "", "hi": ""},
+  "description": {"en": "", "hi": ""},
+  "auto_category": {"en": "", "hi": ""}
 }
 """
     file_part = {
@@ -160,8 +160,17 @@ def analyze_ocr_content(ocr_text: str, mission_name: str, file_name: str) -> dic
         """
 
         print(f"\n--- [Gemini Reasoning Engine] Processing OCR for '{file_name}' ---")
-        response = model.generate_content(prompt)
-        text_content = response.text.strip()
+        from app.services.ai_service import ai_manager
+        import asyncio
+        text_content = asyncio.run(ai_manager.generate_text(prompt))
+        
+        if not text_content:
+            return {
+                "file_summary": "AI reasoning failed to generate a response.",
+                "relevance_score": 0,
+                "relevance_explanation": "Critical error in AI fallback chain.",
+                "action_recommended": "Contact system administrator."
+            }
         
         if text_content.startswith("```json"):
             text_content = text_content[7:]
@@ -252,35 +261,43 @@ You are given a photo of the incident, a text transcript of the worker's voice n
 Voice Transcript: "{audio_transcript}"
 GPS/Location String: "{location}"
 
-Analyze the photo alongside the transcript to generate a highly structured report matching the exact JSON format below.
+Analyze the photo alongside the transcript to generate a highly structured report.
 
 CRITICAL INSTRUCTION: Do NOT leave text fields blank or null. Use your intelligence and the surrounding context (visual evidence + transcript) to infer, generate, or provide a highly probable and helpful value.
 
 NUMERIC INSTRUCTION: For numeric fields like 'population_affected' or 'severity_score', do NOT guess large numbers. Only provide a number if there is direct evidence in the image or audio. If no direct evidence for population exists, return 0 or null.
 
+""" + BILINGUAL_INSTRUCTION + f"""
+
+Metadata (plain strings — do NOT wrap in bilingual):
+  citizen_name = "Field Worker", precise_location = "{location}"
+
+All other text fields MUST be bilingual objects: {{\"en\": \"...\", \"hi\": \"...\"}}
+Array fields (each element is a bilingual object): expected_resolution_timeline, detailed_resolution_steps, key_complaints
+
 Return ONLY valid JSON:
 {{
   "citizen_name": "Field Worker",
   "precise_location": "{location}",
-  "executive_summary": "Concise 1-sentence summary of the incident",
-  "primary_category": "Classify into ONE of: Water, Sanitation, Infrastructure, Health, Education, Safety, or Other",
-  "sub_category": "",
-  "problem_status": "Active/Persistent",
-  "urgency_level": "Immediate/Critical/Moderate/Low",
-  "duration_of_problem": "Estimate if not mentioned",
-  "severity_score": null, /* 1 to 10 */
-  "severity_reason": "2-3 sentence logical justification for the score",
-  "population_affected": null, /* Only if evidence exists, else 0/null */
-  "vulnerable_group": "women/children/elderly/disabled",
-  "vulnerability_flag": "High/Medium/Low",
-  "expected_resolution_timeline": ["Phase 1: ...", "Phase 2: ..."],
-  "detailed_resolution_steps": ["Week 1 - Week 2: Initial Assessment", "Week 3 - Week 4: Resource Allocation", "Week 5 - Week 8: Implementation", "Week 9 - Week 10: Final Verification"],
-  "govt_scheme_applicable": "Relevant Indian scheme",
-  "ai_recommended_actions": "2-3 specific steps in BULLET POINTS",
-  "key_complaints": ["keyword1", "keyword2"],
-  "sentiment": "Based on voice tone",
-  "description": "Comprehensive summary of visual evidence + spoken words in BULLET POINTS",
-  "auto_category": "Same as primary_category"
+  "executive_summary": {{"en": "", "hi": ""}},
+  "primary_category": {{"en": "", "hi": ""}},
+  "sub_category": {{"en": "", "hi": ""}},
+  "problem_status": {{"en": "", "hi": ""}},
+  "urgency_level": {{"en": "", "hi": ""}},
+  "duration_of_problem": {{"en": "", "hi": ""}},
+  "severity_score": null,
+  "severity_reason": {{"en": "", "hi": ""}},
+  "population_affected": null,
+  "vulnerable_group": {{"en": "", "hi": ""}},
+  "vulnerability_flag": {{"en": "", "hi": ""}},
+  "expected_resolution_timeline": [{{"en": "", "hi": ""}}],
+  "detailed_resolution_steps": [{{"en": "", "hi": ""}}],
+  "govt_scheme_applicable": {{"en": "", "hi": ""}},
+  "ai_recommended_actions": {{"en": "", "hi": ""}},
+  "key_complaints": [{{"en": "", "hi": ""}}],
+  "sentiment": {{"en": "", "hi": ""}},
+  "description": {{"en": "", "hi": ""}},
+  "auto_category": {{"en": "", "hi": ""}}
 }}
 """
     file_part = {
@@ -340,64 +357,62 @@ STRICT CONTENT AUDIT RULES (FAILURE TO FOLLOW REDUCES REPORT USEFULNESS):
 4. **INTEGRATE COMMUNITY VOICE**: Read the 'community_voice' analysis. If a female aged 30 expressed concern about water, it MUST be listed as a specific finding.
 5. **BE SPECIFIC**: Use numbers, locations, and direct observations from the evidence analysis.
 
-STRICT JSON OUTPUT FORMAT:
+""" + BILINGUAL_INSTRUCTION + f"""
+
+STRICT JSON OUTPUT FORMAT (ALL TEXT FIELDS MUST BE BILINGUAL OBJECTS):
 {{
   "executive_summary": [
-    "Bullet point 1: Specific high-level summary of the EVENT activity (e.g., 'Completed a health drive in Ward 4')",
-    "Bullet point 2: Key evidence-based observation (e.g., 'Identified acute water shortage affecting 20 households')",
-    "Bullet point 3: Community sentiment and primary request identified",
-    "Bullet point 4: Strategic assessment of the mission's impact"
+    {{"en": "Bullet point 1: ...", "hi": "Bullet point 1 Hindi: ..."}},
+    {{"en": "Bullet point 2: ...", "hi": "Bullet point 2 Hindi: ..."}}
   ],
-  "report_type": "{session_details.get('type')}",
-  "location_summary": "{session_details.get('location')}",
+  "report_type": {{"en": "{session_details.get('type')}", "hi": "Report Type Hindi"}},
+  "location_summary": {{"en": "{session_details.get('location')}", "hi": "Location Hindi"}},
   
   "evidence_breakdown": [
     {{
-      "evidence_type": "Audio / Video / Image / PDF / Note / Community",
-      "evidence_label": "Short label (e.g., 'Primary School Condition')",
+      "evidence_type": {{"en": "Audio / Image / PDF", "hi": "Type Hindi"}},
+      "evidence_label": {{"en": "Short label", "hi": "Label Hindi"}},
       "three_line_extraction": [
-        "Line 1: Specific content found in the evidence (e.g. 'Classrooms show signs of roof leakage')",
-        "Line 2: Data point or detail (e.g. 'Affects approx 30 students during rain')",
-        "Line 3: Recommendation (e.g. 'Urgent roof repairs needed before monsoon')"
+        {{"en": "Line 1", "hi": "Line 1 Hindi"}},
+        {{"en": "Line 2", "hi": "Line 2 Hindi"}},
+        {{"en": "Line 3", "hi": "Line 3 Hindi"}}
       ],
-      "url": "URL if available"
+      "url": "URL stays as string"
     }}
   ],
   
   "key_findings": [
     {{
-      "category": "e.g. Infrastructure / Health",
-      "observation": "detailed observation based on items in feed"
+      "category": {{"en": "Infrastructure", "hi": "Category Hindi"}},
+      "observation": {{"en": "detailed observation", "hi": "Observation Hindi"}}
     }}
   ],
   
   "needs_assessment": [
     {{
-      "need": "The specific requirement identified",
-      "severity": "Low/Moderate/High/Critical",
-      "rationale": "Directly linked to the evidence collected"
+      "need": {{"en": "The specific requirement", "hi": "Need Hindi"}},
+      "severity": "Low/Moderate/High/Critical (stays as English string for backend logic)",
+      "rationale": {{"en": "Directly linked to evidence", "hi": "Rationale Hindi"}}
     }}
   ],
   
   "community_voice": [
     {{
-      "member": "Member 1 (age, gender)",
-      "summary": "What they specifically expressed or requested",
-      "notable_quote": "A powerful quote from their feedback"
+      "member": {{"en": "Member 1 (age, gender)", "hi": "Member 1 Hindi"}},
+      "summary": {{"en": "What they expressed", "hi": "Summary Hindi"}},
+      "notable_quote": {{"en": "A powerful quote", "hi": "Quote Hindi"}}
     }}
   ],
   
   "evidence_conclusion": [
-    "Bullet 1: Direct summary of what the audio evidence (transcripts) specifically revealed about the situation",
-    "Bullet 2: Specific description of what visual evidence showed (not just 'was captured')",
-    "Bullet 3: Synthesis of community requests",
-    "Bullet 4: Overall pattern identified across all media types (e.g. 'Visual and audio evidence both confirm systematic neglect of the public well')",
-    "Bullet 5: Final professional assessment for the NGO headquarters"
+    {{"en": "Bullet 1: ...", "hi": "Bullet 1 Hindi"}},
+    {{"en": "Bullet 2: ...", "hi": "Bullet 2 Hindi"}},
+    {{"en": "Bullet 3: ...", "hi": "Bullet 3 Hindi"}}
   ],
   
   "recommended_follow_up": [
-    "Specific actionable step 1",
-    "Specific actionable step 2"
+    {{"en": "Specific actionable step 1", "hi": "Step 1 Hindi"}},
+    {{"en": "Specific actionable step 2", "hi": "Step 2 Hindi"}}
   ],
   
   "metadata": {{

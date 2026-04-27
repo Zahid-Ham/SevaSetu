@@ -11,6 +11,8 @@ import { AnimatedTabBar } from './AnimatedTabBar';
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { VolunteerApplicationScreen } from '../screens/citizen/VolunteerApplicationScreen';
+import { VerifyCertificateScreen } from '../screens/common/VerifyCertificateScreen';
+import { CitizenReportDetailScreen } from '../screens/citizen/CitizenReportDetailScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -35,6 +37,8 @@ export const CitizenNavigator = () => {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs" component={CitizenTabs} />
       <Stack.Screen name="VolunteerApplication" component={VolunteerApplicationScreen} />
+      <Stack.Screen name="VerifyCertificate" component={VerifyCertificateScreen} />
+      <Stack.Screen name="CitizenReportDetail" component={CitizenReportDetailScreen} />
     </Stack.Navigator>
   );
 };

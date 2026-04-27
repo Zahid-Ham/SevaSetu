@@ -1,26 +1,47 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { CitizenNavigator } from './CitizenNavigator';
 import { VolunteerNavigator } from './VolunteerNavigator';
 import { SupervisorNavigator } from './SupervisorNavigator';
 import { AuthNavigator } from './AuthNavigator';
+import SplashScreen from '../screens/auth/SplashScreen';
 import { useAuthStore } from '../services/store/useAuthStore';
 import { colors, spacing, typography } from '../theme';
 
 export const RootNavigator = () => {
-  const { role, setRole, hasOnboarded } = useAuthStore();
+  const { role, user, logout, isLoading, hasOnboarded } = useAuthStore();
 
-  if (!role) {
-    // Show the Authentication/Landing flow
-    return <AuthNavigator onSelectRole={setRole} hasOnboarded={hasOnboarded} />;
+  // 1. Loading State
+  if (isLoading && !role) {
+    return <SplashScreen />;
   }
 
-  // Render the appropriate navigator based on the selected role
-  if (role === 'CITIZEN') return <CitizenNavigator />;
-  if (role === 'VOLUNTEER') return <VolunteerNavigator />;
-  if (role === 'SUPERVISOR') return <SupervisorNavigator />;
+  // 2. Unauthenticated State
+  if (!role) {
+    return <AuthNavigator hasOnboarded={hasOnboarded} />;
+  }
 
-  return null;
+  // 3. Authenticated State - Normalize Role
+  const normalizedRole = typeof role === 'string' ? role.toUpperCase() : '';
+  const currentRole = normalizedRole.trim();
+
+  // 4. Role-based Routing
+  if (currentRole === 'CITIZEN') return <CitizenNavigator />;
+  if (currentRole === 'VOLUNTEER') return <VolunteerNavigator />;
+  if (currentRole === 'SUPERVISOR') return <SupervisorNavigator />;
+
+  // 5. Fallback for Unexpected Roles (Prevents White Screen)
+  return (
+    <View style={styles.container}>
+      <Text style={[typography.headingMedium, styles.title]}>Unknown Account Type</Text>
+      <Text style={[typography.bodyText, styles.subtitle, { textAlign: 'center' }]}>
+        Your account role ({role}) is not recognized. Please contact support or try logging out.
+      </Text>
+      <TouchableOpacity style={styles.button} onPress={logout}>
+        <Text style={styles.buttonText}>Logout</Text>
+      </TouchableOpacity>
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({

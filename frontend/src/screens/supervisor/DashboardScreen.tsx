@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ScrollView, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
-import { SectionTitle, StatCard, GradientButton, UserAvatar, SkeletonCard, GradientBackground } from '../../components';
+import { SectionTitle, StatCard, GradientButton, UserAvatar, SkeletonCard, GradientBackground, DynamicText } from '../../components';
+import { useLanguage } from '../../context/LanguageContext';
 import { colors, spacing, typography } from '../../theme';
 import { MOCK_STATS } from '../../services/mock';
 import { useEventStore } from '../../services/store/useEventStore';
@@ -11,89 +12,23 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useChatStore } from '../../services/store/useChatStore';
 import { useAuthStore } from '../../services/store/useAuthStore';
 
-const TIER_COLORS: Record<string, { dot: string; gradient: readonly [string, string] }> = {
-  high:   { dot: '#66BB6A', gradient: ['#1B5E20', '#2E7D32'] as const },
-  medium: { dot: '#FFD54F', gradient: ['#E65100', '#F57F17'] as const },
-  low:    { dot: '#90CAF9', gradient: ['#1A237E', '#3949AB'] as const },
-};
-
-// Small preview card shown in the horizontal scroll on the dashboard
-const ForecastPreviewCard = ({ event }: { event: PredictedEvent }) => {
-  const cfg = TIER_COLORS[event.tier] ?? TIER_COLORS.low;
-  const pct = Math.round(event.confidence_score * 100);
-
-  return (
-    <View style={previewStyles.card}>
-      <LinearGradient colors={cfg.gradient} style={previewStyles.topBar}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <View style={[previewStyles.dot, { backgroundColor: cfg.dot }]} />
-          <Text style={previewStyles.pctText}>{pct}%</Text>
-        </View>
-        {event.status === 'confirmed' && (
-          <Text style={previewStyles.confirmedTag}>✅ Confirmed</Text>
-        )}
-      </LinearGradient>
-      <View style={previewStyles.body}>
-        <Text style={previewStyles.eventType} numberOfLines={2}>{event.event_type}</Text>
-        <Text style={previewStyles.area} numberOfLines={1}>
-          <Feather name="map-pin" size={10} /> {event.area}
-        </Text>
-        <Text style={previewStyles.date}>{event.predicted_date_start}</Text>
-        <View style={previewStyles.skillsRow}>
-          {event.required_skills.slice(0, 2).map((s) => (
-            <View key={s} style={previewStyles.skillChip}>
-              <Text style={previewStyles.skillChipText}>{s.replace('_', ' ')}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
-};
-
-const previewStyles = StyleSheet.create({
-  card: {
-    width: 160,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    marginLeft: spacing.md,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  topBar: { padding: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  pctText: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
-  confirmedTag: { fontSize: 9, color: '#fff' },
-  body: { padding: spacing.sm },
-  eventType: { fontSize: 13, fontWeight: '700' as const, color: colors.textPrimary, marginBottom: 4 },
-  area: { fontSize: 10, color: colors.textSecondary, marginBottom: 3 },
-  date: { fontSize: 10, color: colors.primaryGreen, fontWeight: '600' as const, marginBottom: 5 },
-  skillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
-  skillChip: { backgroundColor: colors.primaryGreen + '15', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
-  skillChipText: { fontSize: 9, color: colors.primaryGreen, fontWeight: '600' as const },
-});
-
 // ── Main screen ─────────────────────────────────────────────────────────────────
 
 export const DashboardScreen = () => {
+  const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const [loading, setLoading] = useState(true);
-  const { role } = useAuthStore();
+  const { role, user } = useAuthStore();
   const { predictions, loadPredictions } = useEventStore();
   const { rooms, loadRooms } = useChatStore();
 
-  const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : 'vol_logistics_1';
+  const currentUserId = user?.id;
 
   useFocusEffect(
     React.useCallback(() => {
       setLoading(true);
       loadPredictions();
-      loadRooms(currentUserId);
+      if (currentUserId) loadRooms(currentUserId);
       const timer = setTimeout(() => setLoading(false), 1500);
       return () => clearTimeout(timer);
     }, [currentUserId])
@@ -108,22 +43,30 @@ export const DashboardScreen = () => {
     <GradientBackground variant="dashboard" style={styles.container}>
       <View style={styles.headerContent}>
         <View style={styles.greetingHeader}>
-          <Text style={styles.greetingText}>Good Morning,</Text>
-          <Text style={typography.headingMedium}>Deepak Chawla</Text>
+          <Text style={styles.greetingText}>{t('supervisor.dashboard.greeting')}</Text>
+          <DynamicText 
+            style={styles.userNameText} 
+            text={user?.name || "NGO Supervisor"} 
+            collection="users"
+            docId={user?.id || currentUserId}
+            field="name"
+          />
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        <View style={styles.headerActions}>
           <TouchableOpacity 
             onPress={() => navigation.navigate('ChatList')}
             style={styles.chatHeaderBtn}
           >
-            <Feather name="message-circle" size={24} color={colors.primaryGreen} />
+            <Feather name="message-circle" size={24} color={colors.primarySaffron} />
             {totalUnread > 0 && (
               <View style={[styles.chatBadge, totalUnread > 9 && styles.chatBadgeWide]}>
                 <Text style={styles.chatBadgeText}>{totalUnread > 99 ? '99+' : totalUnread}</Text>
               </View>
             )}
           </TouchableOpacity>
-          <UserAvatar name="Deepak Chawla" size={48} />
+          <View style={styles.avatarWrapper}>
+            <UserAvatar name={user?.name || "Supervisor"} size={54} />
+          </View>
         </View>
       </View>
 
@@ -133,7 +76,7 @@ export const DashboardScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.mainContent}>
-          <SectionTitle title="Real-time Metrics" />
+          <SectionTitle title={t('supervisor.dashboard.metrics')} />
           <View style={styles.metricsGrid}>
             {loading ? (
                <>
@@ -144,51 +87,67 @@ export const DashboardScreen = () => {
                </>
             ) : (
                <>
-                 <StatCard title="Active Volunteers" value={MOCK_STATS.activeVolunteers.toString()} iconName="users" style={styles.gridCard} />
-                 <StatCard title="Open Missions" value={MOCK_STATS.openMissions.toString()} iconName="crosshair" style={styles.gridCard} iconColor={colors.warning} />
-                 <StatCard title="Issues Reported" value={MOCK_STATS.issuesReported.toString()} iconName="alert-triangle" style={styles.gridCard} iconColor={colors.error} />
-                 <StatCard title="Total Impact (Hrs)" value={MOCK_STATS.totalImpactHours} iconName="award" style={styles.gridCard} iconColor={colors.success} />
+                 <StatCard title={t('supervisor.dashboard.activeVolunteers')} value={MOCK_STATS.activeVolunteers.toString()} iconName="users" style={styles.gridCard} />
+                 <StatCard title={t('supervisor.dashboard.openMissions')} value={MOCK_STATS.openMissions.toString()} iconName="crosshair" style={styles.gridCard} iconColor={colors.warning} />
+                 <StatCard title={t('supervisor.dashboard.issuesReported')} value={MOCK_STATS.issuesReported.toString()} iconName="alert-triangle" style={styles.gridCard} iconColor={colors.error} />
+                 <StatCard title={t('supervisor.dashboard.totalImpact')} value={MOCK_STATS.totalImpactHours} iconName="award" style={styles.gridCard} iconColor={colors.success} />
                </>
             )}
           </View>
 
-          <SectionTitle title="Operations" />
+          <SectionTitle title={t('supervisor.dashboard.operations')} />
           <View style={styles.actionsContainer}>
             <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
-              <GradientButton title="Dispatch" icon="send" onPress={() => navigation.navigate('AssignmentManager')} style={{ flex: 1 }} />
+              <GradientButton title={t('supervisor.dashboard.dispatch')} icon="send" onPress={() => navigation.navigate('AssignmentManager')} style={{ flex: 1 }} />
+              <TouchableOpacity 
+                style={styles.manualActionBtn}
+                onPress={() => navigation.navigate('VerifyPassport')}
+              >
+                <Feather name="user-check" size={18} color={colors.primarySaffron} />
+                <Text style={styles.manualActionText}>Verify Passport</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
+              <GradientButton title={t('supervisor.dashboard.viewHeatmap')} icon="map" onPress={() => navigation.navigate('Crisis Heatmap')} style={{ flex: 1 }} />
               <TouchableOpacity 
                 style={styles.manualActionBtn}
                 onPress={() => navigation.navigate('ManualEvent')}
               >
-                <Feather name="plus-circle" size={18} color={colors.primaryGreen} />
-                <Text style={styles.manualActionText}>Manual Event</Text>
+                <Feather name="plus-circle" size={18} color={colors.primarySaffron} />
+                <Text style={styles.manualActionText}>{t('supervisor.dashboard.manualEvent')}</Text>
               </TouchableOpacity>
             </View>
-            <GradientButton title="View Crisis Heatmap" icon="map" onPress={() => navigation.navigate('Crisis Heatmap')} style={styles.actionBtn} />
           </View>
 
-          {/* AI Forecast Preview */}
+          {/* Impact Reports Section */}
           <View style={styles.forecastHeader}>
-            <SectionTitle title="🔮 AI Event Forecast" />
-            <TouchableOpacity onPress={() => navigation.navigate('EventForecast')}>
-               <Text style={styles.viewAllText}>View All</Text>
+            <SectionTitle title={t('supervisor.impactReports.title')} />
+            <TouchableOpacity onPress={() => navigation.navigate('ImpactReports')}>
+               <Text style={styles.viewAllText}>{t('supervisor.dashboard.viewAll')}</Text>
             </TouchableOpacity>
             <View style={styles.forecastBadge}>
-              <Text style={styles.forecastBadgeText}>{activePredictions.length} events</Text>
+              <Text style={styles.forecastBadgeText}>{t('supervisor.impactReports.autoReport')}</Text>
             </View>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.forecastScroll}
+          <TouchableOpacity 
+            style={styles.reportsDashboardCard}
+            onPress={() => navigation.navigate('ImpactReports')}
           >
-            {activePredictions.slice(0, 5).map((evt) => (
-              <ForecastPreviewCard key={evt.id} event={evt} />
-            ))}
-            {/* Trailing spacer */}
-            <View style={{ width: spacing.md }} />
-          </ScrollView>
+            <LinearGradient
+              colors={['#FFFFFF', '#F8F9FA']}
+              style={styles.reportsGradient}
+            >
+              <View style={styles.reportsIconContainer}>
+                <Feather name="bar-chart-2" size={24} color={colors.primaryGreen} />
+              </View>
+              <View style={styles.reportsInfo}>
+                <Text style={styles.reportsTitle}>{t('supervisor.impactReports.weeklyHighlights')}</Text>
+                <Text style={styles.reportsSub}>{t('supervisor.impactReports.foodDrive')} • {t('supervisor.impactReports.mealsServed')}</Text>
+              </View>
+              <Feather name="arrow-right" size={20} color={colors.textSecondary} />
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </GradientBackground>
@@ -198,14 +157,15 @@ export const DashboardScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F8F9FA',
   },
   headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
-    paddingTop: 80,
-    height: 180,
+    paddingTop: 60,
+    height: 200,
     zIndex: 1,
   },
   greetingHeader: {
@@ -213,32 +173,87 @@ const styles = StyleSheet.create({
   },
   greetingText: {
     ...typography.bodyText,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  userNameText: {
+    ...typography.headingMedium,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 26,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  avatarWrapper: {
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 30,
+    padding: 2,
+    marginLeft: 4,
+  },
+  chatHeaderBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  chatBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: colors.error,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    paddingHorizontal: 2,
+  },
+  chatBadgeWide: {
+    paddingHorizontal: 4,
+  },
+  chatBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
   },
   scrollView: {
     flex: 1,
     marginTop: -20,
   },
   scrollContent: {
-    paddingBottom: spacing.xxl * 2,
+    paddingBottom: spacing.xl,
   },
   mainContent: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     paddingTop: spacing.xl,
-    minHeight: 600,
+    paddingBottom: spacing.xxl,
+    minHeight: '100%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
+    shadowOffset: { width: 0, height: -10 },
     shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowRadius: 20,
+    elevation: 10,
   },
   metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.lg,
   },
   gridCard: {
     width: '46%',
@@ -250,11 +265,6 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     marginBottom: spacing.md,
-  },
-  secondaryBtn: {
-    backgroundColor: colors.cardBackground,
-    borderWidth: 1,
-    borderColor: colors.accentBlue,
   },
   forecastHeader: {
     flexDirection: 'row',
@@ -275,11 +285,12 @@ const styles = StyleSheet.create({
   },
   forecastScroll: {
     paddingBottom: spacing.md,
+    paddingLeft: spacing.sm,
   },
   viewAllText: {
-    color: colors.primaryGreen,
+    color: colors.primarySaffron,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '800',
     marginRight: spacing.sm,
   },
   manualActionBtn: {
@@ -289,40 +300,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: colors.primaryGreen,
+    borderWidth: 2,
+    borderColor: colors.primarySaffron,
     backgroundColor: '#fff',
   },
-  manualActionText: {
-    color: colors.primaryGreen,
-    fontWeight: '700',
-    fontSize: 14,
+  reportsDashboardCard: {
+    marginHorizontal: spacing.xl,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    marginBottom: spacing.xl,
   },
-  chatHeaderBtn: {
-    padding: 8,
-    position: 'relative',
+  reportsGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    gap: 15,
   },
-  chatBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: colors.error,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+  reportsIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primaryGreen + '15',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#fff',
-    paddingHorizontal: 2,
   },
-  chatBadgeWide: {
-    paddingHorizontal: 4,
-    borderRadius: 9,
+  reportsInfo: {
+    flex: 1,
   },
-  chatBadgeText: {
-    color: '#fff',
-    fontSize: 10,
+  reportsTitle: {
+    ...typography.headingSmall,
+    fontSize: 15,
+    color: colors.textPrimary,
+  },
+  reportsSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  manualActionText: {
+    color: colors.primarySaffron,
     fontWeight: '800',
+    fontSize: 14,
   },
 });

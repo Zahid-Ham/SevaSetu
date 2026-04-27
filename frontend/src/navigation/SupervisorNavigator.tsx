@@ -12,6 +12,8 @@ import { AssignmentManagerScreen } from '../screens/supervisor/AssignmentManager
 import { ManualEventScreen } from '../screens/supervisor/ManualEventScreen';  
 import { ChatScreen } from '../screens/shared/ChatScreen';
 import { ChatListScreen } from '../screens/shared/ChatListScreen';
+import { VerifyCertificateScreen } from '../screens/common/VerifyCertificateScreen';
+import { VerifyPassportScreen } from '../screens/common/VerifyPassportScreen';
 import { AnimatedTabBar } from './AnimatedTabBar';
 
 const Tab = createBottomTabNavigator();
@@ -20,16 +22,12 @@ const Stack = createNativeStackNavigator();
 const DashboardStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="SupervisorDashboard" component={DashboardScreen} />
-    <Stack.Screen name="EventForecast" component={EventForecastScreen} />
-    <Stack.Screen name="AssignmentManager" component={AssignmentManagerScreen} />
-    <Stack.Screen name="ManualEvent" component={ManualEventScreen} />
   </Stack.Navigator>
 );
 
 const VolunteersStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="VolunteersList" component={VolunteersScreen} />
-    <Stack.Screen name="AssignmentManager" component={AssignmentManagerScreen} />
   </Stack.Navigator>
 );
 
@@ -41,7 +39,7 @@ const SupervisorTabs = () => (
     <Tab.Screen name="Dashboard" component={DashboardStack} />
     <Tab.Screen name="Crisis Heatmap" component={CrisisHeatmapScreen} />
     <Tab.Screen name="Volunteers" component={VolunteersStack} />
-    <Tab.Screen name="Impact Reports" component={ImpactReportsScreen} />
+    <Tab.Screen name="Missions" component={EventForecastScreen} />
     <Tab.Screen name="Profile" component={SupervisorProfileScreen} />
   </Tab.Navigator>
 );
@@ -52,6 +50,12 @@ export const SupervisorNavigator = () => {
       <Stack.Screen name="MainTabs" component={SupervisorTabs} />
       <Stack.Screen name="Chat" component={ChatScreen} />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
+      <Stack.Screen name="ManualEvent" component={ManualEventScreen} />
+      <Stack.Screen name="ImpactReports" component={ImpactReportsScreen} />
+      <Stack.Screen name="AssignmentManager" component={AssignmentManagerScreen} />
+      <Stack.Screen name="EventForecast" component={EventForecastScreen} />
+      <Stack.Screen name="VerifyCertificate" component={VerifyCertificateScreen} />
+      <Stack.Screen name="VerifyPassport" component={VerifyPassportScreen} />
     </Stack.Navigator>
   );
 };

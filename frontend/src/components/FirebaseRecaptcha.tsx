@@ -25,10 +25,12 @@ export const FirebaseRecaptchaVerifierModal = forwardRef<RecaptchaVerifierHandle
     const rejectRef = useRef<((error: Error) => void) | null>(null);
     const webViewRef = useRef<WebView>(null);
 
-    const siteKey = '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'; // Google's test key for invisible reCAPTCHA
+    // Using a more standard approach for Firebase Phone Auth reCAPTCHA in WebView
+    const siteKey = '6LcM_08pAAAAAAfT3B9-2I5n7r2W8Q6qXoG9qH_H'; // Standard Firebase Site Key
 
     const getRecaptchaHTML = useCallback(() => {
-      const invisible = attemptInvisibleVerification;
+      // Force visible for better reliability in development
+      const invisible = false; 
       return `
         <!DOCTYPE html>
         <html>
@@ -41,22 +43,22 @@ export const FirebaseRecaptchaVerifierModal = forwardRef<RecaptchaVerifierHandle
               align-items: center;
               min-height: 100vh;
               margin: 0;
-              background: #f5f5f5;
+              background: #ffffff;
               font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             }
-            .container { text-align: center; padding: 20px; }
-            .loading { color: #666; font-size: 16px; margin-bottom: 20px; }
+            .container { text-align: center; padding: 20px; width: 100%; }
+            .loading { color: #1A237E; font-size: 18px; font-weight: bold; margin-bottom: 20px; }
           </style>
           <script src="https://www.google.com/recaptcha/api.js?hl=en" async defer></script>
         </head>
         <body>
           <div class="container">
-            ${invisible ? '' : '<p class="loading">Please verify you are human</p>'}
+            <p class="loading">Security Verification</p>
             <div
               id="recaptcha-container"
               class="g-recaptcha"
-              data-sitekey="${firebaseConfig.apiKey ? siteKey : siteKey}"
-              data-size="${invisible ? 'invisible' : 'normal'}"
+              data-sitekey="${siteKey}"
+              data-size="normal"
               data-callback="onVerify"
               data-error-callback="onError"
               data-expired-callback="onExpired"
@@ -67,36 +69,16 @@ export const FirebaseRecaptchaVerifierModal = forwardRef<RecaptchaVerifierHandle
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'verify', token: token }));
             }
             function onError(error) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', error: error }));
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', error: 'Recaptcha Error' }));
             }
             function onExpired() {
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'expired' }));
             }
-            // Auto-execute invisible recaptcha
-            ${invisible ? `
-              function executeRecaptcha() {
-                try {
-                  if (typeof grecaptcha !== 'undefined' && grecaptcha.execute) {
-                    grecaptcha.execute();
-                  } else {
-                    setTimeout(executeRecaptcha, 200);
-                  }
-                } catch(e) {
-                  setTimeout(executeRecaptcha, 200);
-                }
-              }
-              // Wait for recaptcha to load then execute
-              if (document.readyState === 'complete') {
-                setTimeout(executeRecaptcha, 500);
-              } else {
-                window.addEventListener('load', function() { setTimeout(executeRecaptcha, 500); });
-              }
-            ` : ''}
           </script>
         </body>
         </html>
       `;
-    }, [firebaseConfig, attemptInvisibleVerification, siteKey]);
+    }, [siteKey]);
 
     const handleMessage = useCallback((event: WebViewMessageEvent) => {
       try {
@@ -123,6 +105,7 @@ export const FirebaseRecaptchaVerifierModal = forwardRef<RecaptchaVerifierHandle
     }, []);
 
     useImperativeHandle(ref, () => ({
+      // ApplicationVerifier interface
       type: 'recaptcha',
       verify: () => {
         return new Promise<string>((resolve, reject) => {
@@ -131,6 +114,12 @@ export const FirebaseRecaptchaVerifierModal = forwardRef<RecaptchaVerifierHandle
           setVisible(true);
         });
       },
+      reset: () => {
+        setVisible(false);
+      },
+      _reset: () => {
+        setVisible(false);
+      }
     }));
 
     return (

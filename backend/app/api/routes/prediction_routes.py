@@ -594,11 +594,13 @@ async def get_live_matches_for_volunteer(volunteer_id: str):
             event_start = event.get("predicted_date_start", "")
             event_end = event.get("predicted_date_end", "")
             event_area = event.get("area", "")
+            # Handle bilingual dict
+            event_area_str = event_area.get("en", "") if isinstance(event_area, dict) else str(event_area)
 
             score, breakdown = assignment_service._score_volunteer(
                 volunteer=volunteer,
                 required_skills=required_skills,
-                event_area=event_area.lower(),
+                event_area=event_area_str.lower(),
                 event_start=event_start,
                 event_end=event_end,
             )

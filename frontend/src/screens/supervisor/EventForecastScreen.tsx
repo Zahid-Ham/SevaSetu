@@ -16,7 +16,8 @@ import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
 import { PredictedEvent } from '../../services/api/eventPredictionService';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { AppHeader, LocationPickerModal } from '../../components';
+import { AppHeader, LocationPickerModal, DynamicText } from '../../components';
+import { useLanguage } from '../../context/LanguageContext';
 
 const CATEGORY_ICONS: Record<string, string> = {
   Water: '💧', Health: '🏥', Sanitation: '🧹', Education: '📚',
@@ -29,13 +30,14 @@ const SKILL_LABELS: Record<string, string> = {
   documentation: 'Documentation', cooking: 'Cooking', driving: 'Driving', counseling: 'Counseling',
 };
 
-const TIER_CONFIG = {
-  high:   { label: 'High Confidence', gradient: ['#1B5E20', '#2E7D32'] as const, text: '#fff', dot: '#66BB6A' },
-  medium: { label: 'Medium Confidence', gradient: ['#E65100', '#F57F17'] as const, text: '#fff', dot: '#FFD54F' },
-  low:    { label: 'Low Confidence', gradient: ['#1A237E', '#3949AB'] as const, text: '#fff', dot: '#90CAF9' },
-};
+const TIER_CONFIG = (t: any) => ({
+  high:   { label: t('supervisor.eventForecast.highConfidence'), gradient: ['#1B5E20', '#2E7D32'] as const, text: '#fff', dot: '#66BB6A' },
+  medium: { label: t('supervisor.eventForecast.mediumConfidence'), gradient: ['#E65100', '#F57F17'] as const, text: '#fff', dot: '#FFD54F' },
+  low:    { label: t('supervisor.eventForecast.lowConfidence'), gradient: ['#1A237E', '#3949AB'] as const, text: '#fff', dot: '#90CAF9' },
+});
 
 export const EventForecastScreen = ({ navigation }: any) => {
+  const { t } = useLanguage();
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'forecast' | 'live'>('forecast');
   const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
@@ -93,15 +95,20 @@ export const EventForecastScreen = ({ navigation }: any) => {
 
   const handleApplyConfirm = async () => {
     if (!editingEvent) return;
+
+    // Harden coordinates before submitting
+    const finalLat = (editLatitude !== undefined && !isNaN(editLatitude)) ? editLatitude : 28.6139;
+    const finalLon = (editLongitude !== undefined && !isNaN(editLongitude)) ? editLongitude : 77.2090;
+
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await confirmEvent(editingEvent.id, {
       predicted_date_start: editStart,
       predicted_date_end: editEnd,
       estimated_headcount: parseInt(editHeadcount, 10) || editingEvent.estimated_headcount,
-      latitude: editLatitude,
-      longitude: editLongitude,
-      geofence_radius: editGeofenceRadius,
-      area: editArea,
+      latitude: finalLat,
+      longitude: finalLon,
+      geofence_radius: editGeofenceRadius || 150,
+      area: editArea || "Unknown Location",
       suggested_govt_scheme: editScheme,
     });
     setEditingEvent(null);
@@ -109,12 +116,12 @@ export const EventForecastScreen = ({ navigation }: any) => {
 
   const handleDismiss = (event: PredictedEvent) => {
     Alert.alert(
-      'Delete Forecast',
-      `Permanently remove "${event.event_type}" from the system?`,
+      t('supervisor.eventForecast.dismiss'),
+      `${t('supervisor.eventForecast.adjustAi')} "${event.event_type}"?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete Forever',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -127,12 +134,12 @@ export const EventForecastScreen = ({ navigation }: any) => {
 
   const handleStopEvent = (event: PredictedEvent) => {
     Alert.alert(
-      'Stop Mission',
-      `Terminate "${event.event_type}"? Volunteers will be notified that the mission has ended.`,
+      t('supervisor.eventForecast.stopMission'),
+      `${t('supervisor.eventForecast.stopMissionDesc')} "${event.event_type}"?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Stop Mission',
+          text: t('supervisor.eventForecast.stopMission'),
           style: 'destructive',
           onPress: async () => {
             await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -141,6 +148,12 @@ export const EventForecastScreen = ({ navigation }: any) => {
         },
       ]
     );
+  };
+
+  const CONFIDENCE_TIER_CONFIG = {
+    high:   { label: t('supervisor.eventForecast.highConfidence'), gradient: ['#1B5E20', '#2E7D32'] as const, text: '#fff', dot: '#66BB6A' },
+    medium: { label: t('supervisor.eventForecast.mediumConfidence'), gradient: ['#E65100', '#F57F17'] as const, text: '#fff', dot: '#FFD54F' },
+    low:    { label: t('supervisor.eventForecast.lowConfidence'), gradient: ['#1A237E', '#3949AB'] as const, text: '#fff', dot: '#90CAF9' },
   };
 
   const allActive = predictions.filter((p) => p.status !== 'dismissed' && (p.status as string) !== 'stopped');
@@ -156,7 +169,7 @@ export const EventForecastScreen = ({ navigation }: any) => {
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Mission Control" />
+      <AppHeader title={t('supervisor.eventForecast.title')} />
 
       {/* Primary Tabs */}
       <View style={styles.tabBar}>
@@ -165,14 +178,14 @@ export const EventForecastScreen = ({ navigation }: any) => {
           onPress={() => setActiveTab('forecast')}
         >
           <Feather name="zap" size={16} color={activeTab === 'forecast' ? colors.primaryGreen : colors.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'forecast' && styles.tabTextActive]}>AI Forecast</Text>
+          <Text style={[styles.tabText, activeTab === 'forecast' && styles.tabTextActive]}>{t('supervisor.eventForecast.aiForecastTab')}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tabItem, activeTab === 'live' && styles.tabItemActive]} 
           onPress={() => setActiveTab('live')}
         >
           <Feather name="activity" size={16} color={activeTab === 'live' ? colors.primaryGreen : colors.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'live' && styles.tabTextActive]}>Live Missions</Text>
+          <Text style={[styles.tabText, activeTab === 'live' && styles.tabTextActive]}>{t('supervisor.eventForecast.liveMissionsTab')}</Text>
           {liveEvents.length > 0 && (
             <View style={styles.tabBadge}>
               <Text style={styles.tabBadgeText}>{liveEvents.length}</Text>
@@ -188,8 +201,8 @@ export const EventForecastScreen = ({ navigation }: any) => {
         {/* Heatmap summary bar - Only visible in Forecast tab */}
         {activeTab === 'forecast' && (
           <LinearGradient colors={['#1A237E', '#283593']} style={styles.heatmapHeader}>
-            <Text style={styles.heatmapTitle}>🔮 Prediction Heatmap</Text>
-            <Text style={styles.heatmapSub}>{activePredictions.length} upcoming events forecasted</Text>
+            <Text style={styles.heatmapTitle}>{t('supervisor.eventForecast.predictionHeatmap')}</Text>
+            <Text style={styles.heatmapSub}>{activePredictions.length} {t('supervisor.eventForecast.eventsForecasted')}</Text>
             <View style={styles.heatmapBar}>
               {highCount > 0 && (
                 <View style={[styles.heatmapSegment, { flex: highCount, backgroundColor: '#66BB6A' }]} />
@@ -202,9 +215,9 @@ export const EventForecastScreen = ({ navigation }: any) => {
               )}
             </View>
             <View style={styles.heatmapLegend}>
-              <HeatmapLegendItem color="#66BB6A" label={`${highCount} High`} />
-              <HeatmapLegendItem color="#FFD54F" label={`${medCount} Medium`} />
-              <HeatmapLegendItem color="#90CAF9" label={`${lowCount} Low`} />
+              <HeatmapLegendItem color="#66BB6A" label={`${highCount} ${t('supervisor.eventForecast.highConfidence')}`} />
+              <HeatmapLegendItem color="#FFD54F" label={`${medCount} ${t('supervisor.eventForecast.mediumConfidence')}`} />
+              <HeatmapLegendItem color="#90CAF9" label={`${lowCount} ${t('supervisor.eventForecast.lowConfidence')}`} />
             </View>
           </LinearGradient>
         )}
@@ -224,7 +237,7 @@ export const EventForecastScreen = ({ navigation }: any) => {
               >
                 {generatingNew
                   ? <ActivityIndicator color="#fff" size="small" />
-                  : <><Feather name="zap" size={16} color="#fff" /><Text style={styles.generateBtnText}>Run AI Prediction</Text></>
+                  : <><Feather name="zap" size={16} color="#fff" /><Text style={styles.generateBtnText}>{t('supervisor.eventForecast.runAiPrediction')}</Text></>
                 }
               </LinearGradient>
             </TouchableOpacity>
@@ -234,7 +247,7 @@ export const EventForecastScreen = ({ navigation }: any) => {
               onPress={() => navigation.navigate('ManualEvent')}
             >
               <Feather name="plus" size={16} color={colors.primaryGreen} />
-              <Text style={styles.manualBtnTxt}>Manual Event</Text>
+              <Text style={styles.manualBtnTxt}>{t('supervisor.dashboard.manualEvent')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -248,7 +261,7 @@ export const EventForecastScreen = ({ navigation }: any) => {
               onPress={() => setFilter(f)}
             >
               <Text style={[styles.filterChipText, filter === f && styles.filterChipTextActive]}>
-                {f === 'all' ? 'All Events' : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === 'all' ? t('supervisor.eventForecast.aiPredictions') : t(`supervisor.heatmap.${f}`)}
               </Text>
             </TouchableOpacity>
           ))}
@@ -265,12 +278,12 @@ export const EventForecastScreen = ({ navigation }: any) => {
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>{activeTab === 'forecast' ? '🔮' : '📡'}</Text>
               <Text style={styles.emptyTitle}>
-                {activeTab === 'forecast' ? 'No New Predictions' : 'No Active Missions'}
+                {activeTab === 'forecast' ? t('supervisor.eventForecast.noPredictions') : t('supervisor.eventForecast.noMissions')}
               </Text>
               <Text style={styles.emptySub}>
                 {activeTab === 'forecast' 
-                  ? 'All predictions have been confirmed or dismissed. Check the "Live Missions" tab for active operations.'
-                  : 'There are no live missions running. Confirm an AI prediction or create a manual event to get started.'}
+                  ? t('supervisor.eventForecast.noPredictionsDesc')
+                  : t('supervisor.eventForecast.noMissionsDesc')}
               </Text>
               {activeTab === 'forecast' && liveEvents.length > 0 && (
                 <TouchableOpacity 
@@ -306,43 +319,43 @@ export const EventForecastScreen = ({ navigation }: any) => {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Configure Event</Text>
+              <Text style={styles.modalTitle}>{t('supervisor.eventForecast.configureEvent')}</Text>
               <TouchableOpacity onPress={() => setEditingEvent(null)} hitSlop={10}>
                 <Feather name="x" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalSub}>Adjust the AI's predictions before dispatching volunteers.</Text>
+            <Text style={styles.modalSub}>{t('supervisor.eventForecast.adjustAi')}</Text>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Start Date <Text style={{fontSize: 10, color: colors.textSecondary, fontWeight: '400'}}>(YYYY-MM-DD)</Text></Text>
+              <Text style={styles.label}>{t('supervisor.eventForecast.startDate')} <Text style={{fontSize: 10, color: colors.textSecondary, fontWeight: '400'}}>(YYYY-MM-DD)</Text></Text>
               <TextInput style={styles.input} value={editStart} onChangeText={setEditStart} placeholder="e.g. 2026-04-10" />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>End Date <Text style={{fontSize: 10, color: colors.textSecondary, fontWeight: '400'}}>(YYYY-MM-DD)</Text></Text>
+              <Text style={styles.label}>{t('supervisor.eventForecast.endDate')} <Text style={{fontSize: 10, color: colors.textSecondary, fontWeight: '400'}}>(YYYY-MM-DD)</Text></Text>
               <TextInput style={styles.input} value={editEnd} onChangeText={setEditEnd} placeholder="e.g. 2026-04-12" />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Volunteers Needed</Text>
+              <Text style={styles.label}>{t('supervisor.eventForecast.volunteersNeeded')}</Text>
               <TextInput style={styles.input} value={editHeadcount} onChangeText={setEditHeadcount} keyboardType="numeric" />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Govt Scheme</Text>
+              <Text style={styles.label}>{t('supervisor.eventForecast.govtScheme')}</Text>
               <TextInput style={styles.input} value={editScheme} onChangeText={setEditScheme} placeholder="e.g. Jal Jeevan Mission" />
             </View>
 
             <View style={styles.inputGroup}>
-               <Text style={styles.label}>Location</Text>
+               <Text style={styles.label}>{t('supervisor.eventForecast.location')}</Text>
                <TouchableOpacity 
                  style={[styles.input, styles.locationBtn]} 
                  onPress={() => setLocationPickerVisible(true)}
                >
                  <Feather name="map-pin" size={16} color={colors.primaryGreen} />
                  <Text style={styles.locationBtnTxt} numberOfLines={1}>
-                   {editLatitude ? editArea : "📍 Set Mission Location on Map"}
+                   {editLatitude ? editArea : t('supervisor.eventForecast.setLocation')}
                  </Text>
                </TouchableOpacity>
                {editLatitude && (
@@ -353,7 +366,7 @@ export const EventForecastScreen = ({ navigation }: any) => {
             </View>
 
             <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleApplyConfirm} disabled={loadingAction}>
-               {loadingAction ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitTxt}>Confirm & Dispatch</Text>}
+               {loadingAction ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitTxt}>{t('supervisor.eventForecast.confirmDispatch')}</Text>}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -397,10 +410,11 @@ const ForecastCard = ({
   onManage: () => void;
   loadingAction: boolean;
 }) => {
+  const { t } = useLanguage();
   const slideAnim = useRef(new Animated.Value(40)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const tier = event.tier || 'medium';
-  const tierConfig = TIER_CONFIG[tier as keyof typeof TIER_CONFIG] || TIER_CONFIG.medium;
+  const tierConfig = TIER_CONFIG(t)[tier as keyof ReturnType<typeof TIER_CONFIG>] || TIER_CONFIG(t).medium;
   const confidencePct = Math.round(event.confidence_score * 100) || 75;
 
   useEffect(() => {
@@ -421,7 +435,7 @@ const ForecastCard = ({
           <View style={styles.tierStripContent}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={[styles.tierDot, { backgroundColor: tierConfig.dot }]} />
-              <Text style={styles.tierLabel}>{tierConfig.label}</Text>
+              <Text style={styles.tierLabel}>{t(`supervisor.eventForecast.${tier}Confidence`)}</Text>
             </View>
             <Text style={styles.confidencePct}>{confidencePct}%</Text>
           </View>
@@ -436,39 +450,38 @@ const ForecastCard = ({
         <View style={styles.titleRow}>
           <Text style={styles.categoryIcon}>{CATEGORY_ICONS[event.category] || '📋'}</Text>
           <View style={styles.titleGroup}>
-            <Text style={styles.eventType}>{event.event_type}</Text>
-            <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {event.area}</Text>
+            <DynamicText style={styles.eventType} text={event.event_type} />
+            <DynamicText style={styles.eventArea} text={event.area} />
           </View>
           {isConfirmed && (
             <View style={styles.confirmedBadge}>
-              <Text style={styles.confirmedBadgeText}>✅ Confirmed</Text>
+              <Text style={styles.confirmedBadgeText}>✅ {t('supervisor.eventForecast.confirmedEvents')}</Text>
             </View>
           )}
         </View>
 
         {/* Description */}
-        <Text style={styles.description}>{event.description}</Text>
+        <DynamicText style={styles.description} text={event.description} />
 
         {/* Confidence reason */}
         <View style={styles.reasonBox}>
           <Feather name="cpu" size={12} color={colors.accentBlue} />
-          <Text style={styles.reasonText}>{event.confidence_reason}</Text>
+          <DynamicText style={styles.reasonText} text={event.confidence_reason} />
         </View>
 
-        {/* Details grid */}
         <View style={styles.detailsGrid}>
-          <DetailChip icon="calendar" label="Predicted Dates" value={`${event.predicted_date_start} – ${event.predicted_date_end}`} />
-          <DetailChip icon="users" label="Volunteers Needed" value={`${event.estimated_headcount} people`} />
-          <DetailChip icon="briefcase" label="Govt Scheme" value={event.suggested_govt_scheme} />
+          <DetailChip icon="calendar" label={t('supervisor.eventForecast.startDate')} value={`${event.predicted_date_start} – ${event.predicted_date_end}`} skipDynamic={true} />
+          <DetailChip icon="users" label={t('supervisor.eventForecast.volunteersNeeded')} value={`${event.estimated_headcount} ${t('supervisor.assignmentManager.volunteers')}`} />
+          <DetailChip icon="briefcase" label={t('supervisor.eventForecast.govtScheme')} value={event.suggested_govt_scheme} />
         </View>
 
         {/* Required skills */}
         <View style={styles.skillsSection}>
-          <Text style={styles.skillsTitle}>Required Skills</Text>
+          <Text style={styles.skillsTitle}>{t('assignments.filterBySkills')}</Text>
           <View style={styles.skillsRow}>
             {event.required_skills.map((skill) => (
               <View key={skill} style={styles.skillChip}>
-                <Text style={styles.skillChipText}>{SKILL_LABELS[skill] || skill}</Text>
+                <Text style={styles.skillChipText}>{t(`skills.${skill}`) !== `skills.${skill}` ? t(`skills.${skill}`) : skill}</Text>
               </View>
             ))}
           </View>
@@ -478,7 +491,7 @@ const ForecastCard = ({
         {isConfirmed && (
           <View style={{ paddingHorizontal: spacing.md, marginTop: spacing.md }}>
              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-                <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '700' }}>VOLUNTEER FILL RATE</Text>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: '700' }}>{t('supervisor.eventForecast.fillRate').toUpperCase()}</Text>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: colors.primaryGreen }}>
                   {event.accepted_count || 0} / {event.estimated_headcount}
                 </Text>
@@ -497,13 +510,13 @@ const ForecastCard = ({
           <View style={styles.actionRow}>
             <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss} disabled={loadingAction}>
               <Feather name="trash-2" size={15} color={colors.error} />
-              <Text style={styles.dismissBtnText}>Delete</Text>
+              <Text style={styles.dismissBtnText}>{t('common.delete')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.confirmBtn} onPress={onConfirm} disabled={loadingAction}>
               <LinearGradient colors={['#2E7D32', '#1B5E20']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.confirmGradient}>
                 {loadingAction
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <><Feather name="check-circle" size={15} color="#fff" /><Text style={styles.confirmBtnText}>Confirm & Dispatch</Text></>
+                  : <><Feather name="check-circle" size={15} color="#fff" /><Text style={styles.confirmBtnText}>{t('supervisor.eventForecast.confirmDispatch')}</Text></>
                 }
               </LinearGradient>
             </TouchableOpacity>
@@ -515,12 +528,12 @@ const ForecastCard = ({
           <View style={styles.actionRow}>
             <TouchableOpacity style={styles.dismissBtn} onPress={onStop} disabled={loadingAction}>
               <Feather name="stop-circle" size={15} color={colors.error} />
-              <Text style={styles.dismissBtnText}>Stop Mission</Text>
+              <Text style={styles.dismissBtnText}>{t('supervisor.eventForecast.stopMission')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.confirmBtn} onPress={onManage} disabled={loadingAction}>
               <LinearGradient colors={['#1A237E', '#283593']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.confirmGradient}>
                  <Feather name="users" size={15} color="#fff" />
-                 <Text style={styles.confirmBtnText}>Manage Team</Text>
+                 <Text style={styles.confirmBtnText}>{t('supervisor.eventForecast.manageTeam')}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -532,12 +545,16 @@ const ForecastCard = ({
 
 // ── Detail Chip ──────────────────────────────────────────────────────────────────
 
-const DetailChip = ({ icon, label, value }: { icon: any; label: string; value: string }) => (
+const DetailChip = ({ icon, label, value, skipDynamic }: { icon: any; label: string; value: string; skipDynamic?: boolean }) => (
   <View style={styles.detailChip}>
     <Feather name={icon} size={12} color={colors.textSecondary} />
-    <View>
+    <View style={{ flex: 1 }}>
       <Text style={styles.detailChipLabel}>{label}</Text>
-      <Text style={styles.detailChipValue}>{value}</Text>
+      {skipDynamic ? (
+        <Text style={styles.detailChipValue}>{value}</Text>
+      ) : (
+        <DynamicText style={styles.detailChipValue} text={value} />
+      )}
     </View>
   </View>
 );

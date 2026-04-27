@@ -7,6 +7,7 @@ import WhyChooseUs from './components/WhyChooseUs';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
 import ReportPage from './components/ReportPage';
+import VerifyCertificate from './components/VerifyCertificate';
 
 // ── Auth Context ──────────────────────────────────────
 export const AuthContext = createContext(null);
@@ -141,6 +142,7 @@ function App() {
             </ProtectedRoute>
           } />
           <Route path="/report/:id" element={<ReportPage />} />
+          <Route path="/verify/:id" element={<VerifyCertificate />} />
         </Routes>
       </MainWrapper>
     </AuthContext.Provider>

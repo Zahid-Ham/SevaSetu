@@ -10,9 +10,12 @@ import { LearningScreen } from '../screens/volunteer/LearningScreen';
 import { VolunteerProfileScreen } from '../screens/volunteer/ProfileScreen';
 import { AssignmentScreen } from '../screens/volunteer/AssignmentScreen';
 import { AvailabilityScreen } from '../screens/volunteer/AvailabilityScreen';
+import { CertificatesScreen } from '../screens/volunteer/CertificatesScreen';
 import { ChatScreen } from '../screens/shared/ChatScreen';
 import { ChatListScreen } from '../screens/shared/ChatListScreen';
 import { SyncDashboardScreen } from '../screens/volunteer/SyncDashboardScreen';
+import { VerifyCertificateScreen } from '../screens/common/VerifyCertificateScreen';
+import { VerifyPassportScreen } from '../screens/common/VerifyPassportScreen';
 import { AnimatedTabBar } from './AnimatedTabBar';
 
 const Tab = createBottomTabNavigator();
@@ -31,6 +34,7 @@ const ProfileStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="VolunteerProfile" component={VolunteerProfileScreen} />
     <Stack.Screen name="Availability" component={AvailabilityScreen} />
+    <Stack.Screen name="Certificates" component={CertificatesScreen} />
   </Stack.Navigator>
 );
 
@@ -54,6 +58,8 @@ export const VolunteerNavigator = () => {
       <Stack.Screen name="MainTabs" component={VolunteerTabs} />
       <Stack.Screen name="Chat" component={ChatScreen} />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
+      <Stack.Screen name="VerifyCertificate" component={VerifyCertificateScreen} />
+      <Stack.Screen name="VerifyPassport" component={VerifyPassportScreen} />
     </Stack.Navigator>
   );
 };

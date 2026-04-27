@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 import { AppHeader, LocationPickerModal } from '../../components';
+import { useLanguage } from '../../context/LanguageContext';
 
 const CATEGORIES = ['Water', 'Health', 'Sanitation', 'Education', 'Infrastructure', 'Safety', 'Environment'];
 const SKILLS = [
@@ -31,6 +32,7 @@ const SKILLS = [
 ];
 
 export const ManualEventScreen = ({ navigation }: any) => {
+  const { t } = useLanguage();
   const [eventType, setEventType] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [description, setDescription] = useState('');
@@ -58,7 +60,7 @@ export const ManualEventScreen = ({ navigation }: any) => {
 
   const handleCreate = async () => {
     if (!eventType || !description || !startDate || !endDate) {
-      Alert.alert('Error', 'Please fill in all required fields.');
+      Alert.alert(t('common.error'), t('supervisor.manualEvent.fillRequired'));
       return;
     }
 
@@ -78,35 +80,35 @@ export const ManualEventScreen = ({ navigation }: any) => {
 
     try {
       await addManualEvent(payload);
-      Alert.alert('Success!', 'Manual event created and volunteers assigned.');
+      Alert.alert(t('common.success'), t('supervisor.manualEvent.createSuccess'));
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Error', 'Failed to create event.');
+      Alert.alert(t('common.error'), t('supervisor.manualEvent.createFailed'));
     }
   };
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Create Manual Event" showBack onBackPress={() => navigation.goBack()} />
+      <AppHeader title={t('supervisor.manualEvent.title')} showBack onBackPress={() => navigation.goBack()} />
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           
           <View style={[globalStyles.card, styles.formCard]}>
-            <Text style={styles.sectionTitle}>Event Basics</Text>
+            <Text style={styles.sectionTitle}>{t('supervisor.manualEvent.eventBasics')}</Text>
             
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Event Name</Text>
+              <Text style={styles.label}>{t('supervisor.manualEvent.eventName')}</Text>
               <TextInput 
                 style={styles.input} 
                 value={eventType} 
                 onChangeText={setEventType} 
-                placeholder="e.g. Village Sanitation Drive"
+                placeholder={t('supervisor.manualEvent.eventNamePlaceholder')}
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Category</Text>
+              <Text style={styles.label}>{t('supervisor.manualEvent.category')}</Text>
               <View style={styles.categoryRow}>
                 {CATEGORIES.map((cat) => (
                   <TouchableOpacity 
@@ -114,37 +116,37 @@ export const ManualEventScreen = ({ navigation }: any) => {
                     style={[styles.catBtn, category === cat && styles.catBtnActive]}
                     onPress={() => setCategory(cat)}
                   >
-                    <Text style={[styles.catBtnTxt, category === cat && styles.catBtnTxtActive]}>{cat}</Text>
+                    <Text style={[styles.catBtnTxt, category === cat && styles.catBtnTxtActive]}>{t(`categories.${cat}`)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Location</Text>
+              <Text style={styles.label}>{t('supervisor.manualEvent.location')}</Text>
               <TouchableOpacity 
                 style={[styles.input, styles.locationBtn]} 
                 onPress={() => setLocationPickerVisible(true)}
               >
                 <Feather name="map-pin" size={16} color={colors.primaryGreen} />
                 <Text style={styles.locationBtnTxt} numberOfLines={1}>
-                  {latitude ? area : "📍 Set Mission Location on Map"}
+                  {latitude ? area : t('supervisor.manualEvent.setMissionLocation')}
                 </Text>
               </TouchableOpacity>
               {latitude && (
                 <Text style={styles.coordinatesHint}>
-                  Coordinates: {latitude.toFixed(4)}, {longitude?.toFixed(4)} • Radius: {geofenceRadius}m
+                  {t('supervisor.manualEvent.coordinates')}: {latitude.toFixed(4)}, {longitude?.toFixed(4)} • {t('supervisor.manualEvent.radius')}: {geofenceRadius}m
                 </Text>
               )}
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Description</Text>
+              <Text style={styles.label}>{t('supervisor.manualEvent.description')}</Text>
               <TextInput 
                 style={[styles.input, styles.textArea]} 
                 value={description} 
                 onChangeText={setDescription} 
-                placeholder="Describe the objective and activities..."
+                placeholder={t('supervisor.manualEvent.descriptionPlaceholder')}
                 multiline
                 numberOfLines={4}
               />
@@ -164,31 +166,31 @@ export const ManualEventScreen = ({ navigation }: any) => {
           />
 
           <View style={[globalStyles.card, styles.formCard]}>
-            <Text style={styles.sectionTitle}>Logistics & Skills</Text>
+            <Text style={styles.sectionTitle}>{t('supervisor.manualEvent.logisticsSkills')}</Text>
 
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.label}>Start Date</Text>
+                <Text style={styles.label}>{t('supervisor.manualEvent.startDate')}</Text>
                 <TextInput 
                   style={styles.input} 
                   value={startDate} 
                   onChangeText={setStartDate} 
-                  placeholder="YYYY-MM-DD"
+                  placeholder={t('supervisor.manualEvent.datePlaceholder')}
                 />
               </View>
               <View style={[styles.inputGroup, { flex: 1, marginLeft: spacing.sm }]}>
-                <Text style={styles.label}>End Date</Text>
+                <Text style={styles.label}>{t('supervisor.manualEvent.endDate')}</Text>
                 <TextInput 
                   style={styles.input} 
                   value={endDate} 
                   onChangeText={setEndDate} 
-                  placeholder="YYYY-MM-DD"
+                  placeholder={t('supervisor.manualEvent.datePlaceholder')}
                 />
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Volunteers Needed</Text>
+              <Text style={styles.label}>{t('supervisor.manualEvent.volunteersNeeded')}</Text>
               <TextInput 
                 style={styles.input} 
                 value={headcount} 
@@ -198,7 +200,7 @@ export const ManualEventScreen = ({ navigation }: any) => {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Required Skills</Text>
+              <Text style={styles.label}>{t('supervisor.manualEvent.requiredSkills')}</Text>
               <View style={styles.skillsRow}>
                 {SKILLS.map((s) => (
                   <TouchableOpacity 
@@ -206,7 +208,9 @@ export const ManualEventScreen = ({ navigation }: any) => {
                     style={[styles.skillChip, selectedSkills.has(s.id) && styles.skillChipActive]}
                     onPress={() => toggleSkill(s.id)}
                   >
-                    <Text style={[styles.skillChipTxt, selectedSkills.has(s.id) && styles.skillChipTxtActive]}>{s.label}</Text>
+                    <Text style={[styles.skillChipTxt, selectedSkills.has(s.id) && styles.skillChipTxtActive]}>
+                      {t(`skills.${s.id}`) !== `skills.${s.id}` ? t(`skills.${s.id}`) : s.label}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -224,7 +228,7 @@ export const ManualEventScreen = ({ navigation }: any) => {
             >
               {loadingAction 
                 ? <ActivityIndicator color="#fff" />
-                : <><Feather name="plus-circle" size={20} color="#fff" /><Text style={styles.submitTxt}>Create & Dispatch Volunteers</Text></>
+                : <><Feather name="plus-circle" size={20} color="#fff" /><Text style={styles.submitTxt}>{t('supervisor.manualEvent.createDispatch')}</Text></>
               }
             </LinearGradient>
           </TouchableOpacity>

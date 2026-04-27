@@ -77,17 +77,19 @@ const ChatRoomItem = ({ room, currentUserId, onPress }: { room: any; currentUser
 
 export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
-  const { role } = useAuthStore();
+  const { role, user } = useAuthStore();
   const { volunteerId: currentVolunteerId } = useEventStore();
   
-  const currentUserId = role === 'SUPERVISOR' ? 'sup_deepak_1' : currentVolunteerId;
+  const currentUserId = (role === 'SUPERVISOR' ? user?.id : currentVolunteerId) || '';
 
   const { rooms, loadRooms, loadingRooms, markRoomRead } = useChatStore();
 
   useFocusEffect(
     useCallback(() => {
-      loadRooms(currentUserId);
-    }, [currentUserId])
+      if (currentUserId) {
+        loadRooms(currentUserId);
+      }
+    }, [currentUserId, loadRooms])
   );
 
   return (

@@ -1,16 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { View, Text, StyleSheet, TextInput, SafeAreaView, TouchableOpacity, Animated, KeyboardAvoidingView, Platform, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { PrimaryButton, MadeInIndiaBadge, GradientBackground } from '../../components';
-import { useAuthStore } from '../../services/store/useAuthStore';
+import { PrimaryButton, MadeInIndiaBadge, GradientBackground, StatusModal } from '../../components';
+import { firebaseAuthService } from '../../services/auth/firebaseAuthService';
+import { useAuthStore, AppUser } from '../../services/store/useAuthStore';
 import { FirebaseRecaptchaVerifierModal } from '../../components/FirebaseRecaptcha';
 import { auth } from '../../config/firebaseConfig';
+import { useLanguage } from '../../context/LanguageContext';
 
 export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => void }) => {
   const navigation = useNavigation<any>();
   const { sendOtp, verifyOtp } = useAuthStore();
+  const { t } = useLanguage();
   const route = useRoute<any>();
   const role = route.params?.role || 'CITIZEN';
   
@@ -20,6 +23,9 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
   const [timer, setTimer] = useState(30);
   const [loading, setLoading] = useState(false);
   const [confirmation, setConfirmation] = useState<any>(null);
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalConfig, setModalConfig] = useState({ type: 'error' as const, title: '', message: '' });
 
   const otpAnimation = useRef(new Animated.Value(0)).current;
   const recaptchaVerifier = useRef<any>(null);
@@ -34,53 +40,154 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
     return () => clearInterval(interval);
   }, [isOtpSent, timer]);
 
+  const showError = (title: string, message: string) => {
+    console.log('[OTP] Showing error:', title, message);
+    setModalConfig({ type: 'error', title, message });
+    setModalVisible(true);
+  };
+
   const handleSendOtp = async () => {
     if (phoneNumber.length === 10) {
+      console.log('[OTP] Sending OTP to:', phoneNumber);
       setLoading(true);
       try {
+        console.log('[OTP] Sending to:', phoneNumber);
+        console.log('[OTP] Verifier Status:', recaptchaVerifier.current ? 'Ready' : 'Not Ready');
+        
+        if (!recaptchaVerifier.current) {
+          showError('Error', 'Recaptcha verifier is not ready. Please wait a moment and try again.');
+          return;
+        }
+
         const result = await sendOtp(phoneNumber, recaptchaVerifier.current);
+        console.log('[OTP] Send Result:', result.success);
         if (result.success) {
           setConfirmation(result.confirmation);
           setIsOtpSent(true);
+          setStep('OTP'); // Switch to the OTP input screen
           Animated.timing(otpAnimation, {
             toValue: 1,
             duration: 500,
             useNativeDriver: true,
           }).start();
         } else {
-          Alert.alert('Error', result.message || 'Failed to send OTP.');
+          showError(t('common.error'), result.message || t('auth.otp.failedSend'));
         }
       } catch (err: any) {
-        console.error('[Phone Auth] Error:', err);
-        Alert.alert('Error', err.message || 'Failed to send OTP. Please check your phone number and project settings.');
+        console.error('[OTP] Send Error Object:', JSON.stringify(err, null, 2));
+        console.error('[OTP] Error Code:', err.code);
+        console.error('[OTP] Error Message:', err.message);
+        
+        let friendlyMessage = err.message || t('auth.otp.error');
+        if (err.code === 'auth/unauthorized-domain') {
+          friendlyMessage = 'This domain is not authorized. Please check your Firebase Authorized Domains.';
+        } else if (err.code === 'auth/invalid-app-credential') {
+          friendlyMessage = 'Invalid app credentials. This often happens in Expo Go. Try a test phone number.';
+        }
+        
+        showError(t('common.error'), friendlyMessage);
       } finally {
         setLoading(false);
       }
     }
   };
+
+  const [step, setStep] = useState<'PHONE' | 'OTP' | 'PROFILE'>('PHONE');
+  const [fullName, setFullName] = useState('');
+  const [ngoName, setNgoName] = useState('');
 
   const handleVerify = async () => {
     if (otp.length === 6) {
       setLoading(true);
       try {
         const result = await verifyOtp(confirmation, otp, role);
-        if (!result.success) {
-          Alert.alert('Verification Failed', result.message);
+        if (result.success) {
+          // Check if profile exists
+          const profile = useAuthStore.getState().user;
+          if (profile && profile.name && profile.name !== 'New User') {
+            // Profile exists, logic in verifyOtp will have already logged them in
+          } else {
+            // New user, show profile completion
+            setStep('PROFILE');
+          }
+        } else {
+          showError(t('auth.loginError'), result.message);
         }
-      } catch (err) {
-        Alert.alert('Error', 'Invalid OTP or verification failed.');
+      } catch (err: any) {
+        showError(t('common.error'), t('auth.otp.verifyError'));
       } finally {
         setLoading(false);
       }
     }
   };
 
+  const handleCompleteRegistration = async () => {
+    if (!fullName.trim()) {
+      showError('Required', 'Please enter your full name');
+      return;
+    }
+    if (role === 'SUPERVISOR' && !ngoName.trim()) {
+      showError('Required', 'Please enter your NGO name');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Session lost');
+
+      const profileData: any = {
+        name: fullName.trim(),
+        fullName: fullName.trim(),
+        phoneNumber: `+91${phoneNumber}`,
+        role: role,
+        authMethod: 'phone',
+        createdAt: new Date().toISOString(),
+      };
+
+      if (role === 'SUPERVISOR') {
+        profileData.ngoName = ngoName.trim();
+        profileData.isVerified = false;
+      }
+
+      await firebaseAuthService.createUserProfile(user.uid, profileData);
+      
+      const appUser: AppUser = {
+        id: user.uid,
+        name: fullName.trim(),
+        email: user.email || '',
+        phone: profileData.phoneNumber,
+        role: role as any,
+        ngo_name: profileData.ngoName
+      };
+
+      const { setAuthSession } = useAuthStore.getState();
+      setAuthSession(appUser, role as any);
+    } catch (err: any) {
+      showError('Error', 'Failed to save profile. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleModalClose = () => {
+    setModalVisible(false);
+  };
+
   return (
     <GradientBackground style={styles.container}>
       <FirebaseRecaptchaVerifierModal
         ref={recaptchaVerifier}
-        firebaseConfig={auth.app.options}
-        attemptInvisibleVerification={true}
+        firebaseConfig={{
+          apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+          authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+          projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+          storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+          messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+          appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+          measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
+        }}
+        attemptInvisibleVerification={false}
       />
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -91,47 +198,48 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
             </TouchableOpacity>
-            <Text style={styles.title}>Login with OTP</Text>
+            <Text style={styles.title}>
+              {step === 'PROFILE' ? 'Complete Profile' : t('auth.otp.title')}
+            </Text>
             <Text style={styles.subtitle}>
-              We'll send a 6-digit code to verify your number.
+              {step === 'PROFILE' 
+                ? 'Welcome! Just a few more details to get started.'
+                : t('auth.otp.subtitle')}
             </Text>
           </View>
 
           <View style={styles.content}>
             <View style={[globalStyles.card, styles.formCard]}>
-              <Text style={styles.label}>Phone Number</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.prefix}>+91</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Enter 10 digit number"
-                  keyboardType="phone-pad"
-                  maxLength={10}
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                  editable={!isOtpSent}
-                />
-                {isOtpSent && (
-                  <TouchableOpacity onPress={() => setIsOtpSent(false)}>
-                    <Text style={styles.changeLink}>Change</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              {step === 'PHONE' && (
+                <>
+                  <Text style={styles.label}>{t('auth.otp.phoneLabel')}</Text>
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.prefix}>+91</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder={t('auth.otp.phonePlaceholder')}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                      value={phoneNumber}
+                      onChangeText={setPhoneNumber}
+                    />
+                  </View>
+                  <PrimaryButton 
+                    title={loading ? t('auth.otp.sending') : t('auth.otp.sendButton')} 
+                    onPress={handleSendOtp} 
+                    disabled={phoneNumber.length !== 10 || loading}
+                    style={styles.button}
+                  />
+                </>
+              )}
 
-              {!isOtpSent ? (
-                <PrimaryButton 
-                  title={loading ? "Sending..." : "Send OTP"} 
-                  onPress={handleSendOtp} 
-                  disabled={phoneNumber.length !== 10 || loading}
-                  style={styles.button}
-                />
-              ) : (
+              {step === 'OTP' && (
                 <Animated.View style={{ opacity: otpAnimation }}>
-                  <Text style={styles.label}>Enter OTP</Text>
+                  <Text style={styles.label}>{t('auth.otp.otpLabel')}</Text>
                   <View style={styles.inputContainer}>
                     <TextInput
                       style={styles.textInput}
-                      placeholder="6-digit code"
+                      placeholder={t('auth.otp.otpPlaceholder')}
                       keyboardType="number-pad"
                       maxLength={6}
                       value={otp}
@@ -141,24 +249,61 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
                   
                   <View style={styles.timerRow}>
                     {timer > 0 ? (
-                      <Text style={styles.timerText}>Resend OTP in {timer}s</Text>
+                      <Text style={styles.timerText}>{t('auth.otp.resendText')} {timer}s</Text>
                     ) : (
                       <TouchableOpacity onPress={() => {
                         setTimer(30);
                         handleSendOtp();
                       }}>
-                        <Text style={styles.resendLink}>Resend OTP</Text>
+                        <Text style={styles.resendLink}>{t('auth.otp.resendButton')}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
 
                   <PrimaryButton 
-                    title={loading ? "Verifying..." : "Verify & Login"} 
+                    title={loading ? t('auth.otp.verifying') : t('auth.otp.verifyButton')} 
                     onPress={handleVerify} 
                     disabled={otp.length !== 6 || loading}
                     style={styles.button}
                   />
                 </Animated.View>
+              )}
+
+              {step === 'PROFILE' && (
+                <View>
+                  <Text style={styles.label}>Full Name</Text>
+                  <View style={styles.inputContainer}>
+                    <Ionicons name="person-outline" size={20} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Enter your name"
+                      value={fullName}
+                      onChangeText={setFullName}
+                    />
+                  </View>
+
+                  {role === 'SUPERVISOR' && (
+                    <>
+                      <Text style={styles.label}>NGO Name</Text>
+                      <View style={styles.inputContainer}>
+                        <Ionicons name="business-outline" size={20} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Enter NGO name"
+                          value={ngoName}
+                          onChangeText={setNgoName}
+                        />
+                      </View>
+                    </>
+                  )}
+
+                  <PrimaryButton 
+                    title={loading ? 'Creating Profile...' : 'Get Started'} 
+                    onPress={handleCompleteRegistration} 
+                    disabled={loading}
+                    style={styles.button}
+                  />
+                </View>
               )}
             </View>
 
@@ -168,9 +313,19 @@ export const OtpLoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) =>
           </View>
         </SafeAreaView>
       </KeyboardAvoidingView>
+
+      <StatusModal
+        visible={modalVisible}
+        type={modalConfig.type}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        onClose={handleModalClose}
+        buttonText={t('common.retry')}
+      />
     </GradientBackground>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
@@ -178,7 +333,7 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: spacing.xl,
-    paddingTop: spacing.md,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + spacing.md : spacing.md,
   },
   backButton: {
     width: 40,

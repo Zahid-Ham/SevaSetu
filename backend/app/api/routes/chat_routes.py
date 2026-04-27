@@ -24,6 +24,7 @@ from app.services.chat_analysis_service import (
 )
 from app.services.chat_report_service import generate_chat_report_pdf
 from app.services.attachment_intelligence_service import analyze_attachment_on_upload # type: ignore
+from app.services.gemini_service import BILINGUAL_INSTRUCTION
 
 load_dotenv()
 
@@ -176,10 +177,12 @@ class SummarizeChatRequest(BaseModel):
     messages: List[ChatMessage]
     context_event: Optional[str] = None
 
+from app.services.ai_service import ai_manager
+
 @router.post("/chat/summarize")
 async def summarize_chat(req: SummarizeChatRequest, background_tasks: BackgroundTasks):
     """
-    Uses Gemini to summarize a conversation between a supervisor and a volunteer.
+    Uses Gemini (with Groq fallback) to summarize a conversation between a supervisor and a volunteer.
     Provides 'Key Takeaways' and 'Action Items'.
     """
     if not req.messages:
@@ -200,22 +203,39 @@ Your task is to summarize the following conversation between a Supervisor and a 
 CONVERSATION:
 {conversation_text}
 
+""" + BILINGUAL_INSTRUCTION + """
 Provide a concise summary in the following format:
 1. **Status**: (e.g. Agreement reached, Pending clarification, Declined)
 2. **Key Takeaways**: (2-3 bullet points of what was discussed)
 3. **Action Items**: (What needs to happen next)
 
-Keep it professional and brief.
+Return ONLY valid JSON:
+{
+  "summary": {"en": "Full markdown summary here...", "hi": "पूरा हिंदी सारांश यहाँ..."}
+}
 """
 
     try:
-        print(f"\n--- [Gemini Summary] Generating for event: {req.context_event} ---")
-        print(f"[Gemini Summary] Prompt Length: {len(prompt)} chars")
+        print(f"\n--- [AI Summary] Generating for event: {req.context_event} ---")
+        print(f"[AI Summary] Prompt Length: {len(prompt)} chars")
         
-        response = model.generate_content(prompt)
-        summary_text = response.text.strip()
+        text_content = await ai_manager.generate_text(prompt)
         
-        print(f"[Gemini Summary] SUCCESS. Response Length: {len(summary_text)} chars")
+        if not text_content:
+            raise HTTPException(status_code=500, detail="AI Summarization failed to generate content.")
+
+        if text_content.startswith("```json"):
+            text_content = text_content[7:]
+            text_content = text_content.rsplit("```", 1)[0]
+        elif text_content.startswith("```"):
+            text_content = text_content[3:]
+            text_content = text_content.rsplit("```", 1)[0]
+            
+        import json
+        data = json.loads(text_content.strip())
+        summary_val = data.get("summary", "Summary unavailable.")
+        
+        print(f"[AI Summary] SUCCESS.")
         
         # ── Trigger Background Embedding ──
         # This ensures the 'Ask AI' context stays fresh when we summarize.
@@ -228,7 +248,7 @@ Keep it professional and brief.
         chunks = build_chat_chunks([m.dict() for m in req.messages], v_name, s_name)
         background_tasks.add_task(embed_and_store_chunks, room_id, chunks)
         
-        return {"success": True, "summary": summary_text}
+        return {"success": True, "summary": summary_val}
     except Exception as e:
         print(f"\n!!! [Gemini Summary ERROR] !!!")
         print(f"Error Type: {type(e).__name__}")
@@ -674,7 +694,7 @@ async def analyze_chat_endpoint(req: AnalyzeChatRequest, background_tasks: Backg
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 @router.get("/chat/report/{room_id}")
-async def get_chat_report(room_id: str, event_name: str = ""):
+async def get_chat_report(room_id: str, event_name: str = "", lang: str = "en"):
     """
     Generates and returns a PDF report based on the cached analysis.
     """
@@ -691,7 +711,7 @@ async def get_chat_report(room_id: str, event_name: str = ""):
             analysis = doc.to_dict()
 
         # 2. Generate PDF
-        pdf_bytes = generate_chat_report_pdf(analysis, event_name, room_id)
+        pdf_bytes = generate_chat_report_pdf(analysis, event_name, room_id, lang)
         
         # 3. Stream Response
         from io import BytesIO
@@ -761,7 +781,7 @@ async def ask_chat_endpoint(req: AskChatRequest):
         else:
             print("!!! WARNING: CONTEXT IS EMPTY !!!")
         
-        # 3. Call Gemini for final answer
+        # 3. Call AI for final answer (Gemini with Groq Fallback)
         prompt = f"""
         You are 'SevaSetu AI helper'. Your goal is to answer questions about a specific conversation 
         between an NGO supervisor and a volunteer regarding '{req.event_name}'.
@@ -776,9 +796,10 @@ async def ask_chat_endpoint(req: AskChatRequest):
         
         Answer professionally and concisely.
         """
+        answer = await ai_manager.generate_text(prompt)
         
-        response = model.generate_content(prompt)
-        answer = response.text.strip()
+        if not answer:
+            answer = "I apologize, but I am currently unable to process your request. Please try again later."
         
         # 4. Persistence: Save Q&A to Firestore under this room
         # We store it in a subcollection 'ai_interactions'

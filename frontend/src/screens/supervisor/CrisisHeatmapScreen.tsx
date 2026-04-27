@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { AppHeader, CrisisMap, Issue } from '../../components';
+import { AppHeader, CrisisMap, Issue, DynamicText } from '../../components';
 import { colors, typography, globalStyles, spacing } from '../../theme';
 import { useEventStore } from '../../services/store/useEventStore';
+import { useLanguage, Language } from '../../context/LanguageContext';
+import { getBilingualText } from '../../utils/bilingualHelpers';
 
 export const CrisisHeatmapScreen = () => {
+  const { t, language } = useLanguage();
   const { reports, loadReports } = useEventStore();
   const [filter, setFilter] = useState<'all' | 'urgent' | 'medium' | 'resolved'>('all');
   const [isFilterVisible, setIsFilterVisible] = useState(false);
@@ -25,30 +28,47 @@ export const CrisisHeatmapScreen = () => {
   };
 
   // Map Backend Reports to Issue Interface
-  const liveIssues: Issue[] = reports.map((r) => {
-    const coords = r.gps_coordinates || r.precise_location || "";
-    const [lat, lng] = coords.split(',').map((s: string) => parseFloat(s.trim()));
-    
-    // Map Urgency to Priority
-    let priority: Issue['priority'] = 'medium';
-    const urgency = r.urgency_level?.toLowerCase() || "";
-    if (urgency === 'critical' || urgency === 'high') priority = 'urgent';
-    else if (urgency === 'moderate') priority = 'medium';
-    else if (urgency === 'low' || urgency === 'resolved') priority = 'resolved';
+  const liveIssues: Issue[] = (reports || []).map((r): Issue | null => {
+    try {
+      if (!r) return null;
+      
+      const coords = (r.gps_coordinates || r.precise_location || "").toString();
+      const parts = coords.split(',').map((s: string) => parseFloat(s.trim()));
+      
+      // Explicit numeric check - fallback to Delhi if invalid
+      const lat = (parts.length > 0 && !isNaN(parts[0])) ? parts[0] : 28.6139;
+      const lng = (parts.length > 1 && !isNaN(parts[1])) ? parts[1] : 77.2090;
+      
+      // Map Urgency to Priority
+      let priority: Issue['priority'] = 'medium';
+      const urgency = typeof r.urgency_level === 'string' ? r.urgency_level.toLowerCase() : "";
+      
+      if (urgency === 'critical' || urgency === 'high') priority = 'urgent';
+      else if (urgency === 'moderate') priority = 'medium';
+      else if (urgency === 'low' || urgency === 'resolved') priority = 'resolved';
 
-    const category = r.primary_category || r.secondary_category || "Issue";
-    const summary = r.executive_summary || r.description || "Field Report";
-    const niceTitle = `${category}: ${summary}`;
+      const rawCategory = getBilingualText(r.primary_category || r.secondary_category, language, "Issue");
+      const category = t(`categories.${rawCategory}`, rawCategory);
+      const summary = getBilingualText(r.executive_summary || r.description, language, "Field Report");
+      const niceTitle = `${category}: ${summary}`;
 
-    return {
-      id: r.id,
-      title: niceTitle, // Let the UI handle truncation with numberOfLines={1}
-      description: r.description || r.executive_summary || "No description provided.",
-      priority,
-      latitude: lat || 28.6139,
-      longitude: lng || 77.2090,
-    };
-  });
+      return {
+        id: r.id || `temp-${Math.random()}`,
+        title: niceTitle,
+        category: category,
+        summary: summary,
+        summaryField: r.executive_summary ? 'executive_summary' : 'description',
+        description: getBilingualText(r.description || r.executive_summary, language, "No description provided."),
+        descField: r.description ? 'description' : 'executive_summary',
+        priority,
+        latitude: lat,
+        longitude: lng,
+      } as Issue;
+    } catch (e) {
+      console.warn('Error mapping report to issue:', e);
+      return null;
+    }
+  }).filter((i): i is Issue => i !== null);
 
   const filteredIssues = filter === 'all' 
     ? liveIssues 
@@ -70,7 +90,7 @@ export const CrisisHeatmapScreen = () => {
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Crisis Heatmap" />
+      <AppHeader title={t('supervisor.crisisHeatmap.title')} />
       <View style={styles.mapContainer}>
         
         <CrisisMap 
@@ -85,7 +105,7 @@ export const CrisisHeatmapScreen = () => {
           activeOpacity={0.9}
         >
           <View style={styles.legendHeader}>
-            <Text style={styles.legendTitle}>Legend</Text>
+            <Text style={styles.legendTitle}>{t('supervisor.crisisHeatmap.legend')}</Text>
             <Feather name="filter" size={14} color={colors.textSecondary} />
           </View>
           
@@ -96,7 +116,7 @@ export const CrisisHeatmapScreen = () => {
           </View>
           
           <Text style={styles.activeFilterText}>
-            Showing: {filter === 'all' ? 'All Issues' : filter.charAt(0).toUpperCase() + filter.slice(1)}
+            {t('supervisor.crisisHeatmap.showing')} {filter === 'all' ? t('supervisor.crisisHeatmap.allIssues') : t(`supervisor.crisisHeatmap.${filter}`)}
           </Text>
         </TouchableOpacity>
 
@@ -110,7 +130,7 @@ export const CrisisHeatmapScreen = () => {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Issues Explorer</Text>
+                <Text style={styles.modalTitle}>{t('supervisor.crisisHeatmap.explorer')}</Text>
                 <TouchableOpacity onPress={() => setIsFilterVisible(false)}>
                   <Ionicons name="close-circle" size={28} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -130,7 +150,7 @@ export const CrisisHeatmapScreen = () => {
                       onPress={() => setFilter(cat)}
                     >
                       <Text style={[styles.catTabText, filter === cat && styles.catTabTextActive]}>
-                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                        {cat === 'all' ? t('supervisor.crisisHeatmap.allIssues') : t(`supervisor.crisisHeatmap.${cat}`)}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -150,9 +170,19 @@ export const CrisisHeatmapScreen = () => {
                       }}
                     >
                       <View style={styles.issueListHeader}>
-                        <Text style={styles.issueListTitle} numberOfLines={1}>{issue.title}</Text>
+                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                           <Text style={[styles.issueListTitle, { flex: 0 }]} numberOfLines={1}>{issue.category}: </Text>
+                           <DynamicText 
+                             text={issue.summary} 
+                             collection="reports"
+                             docId={issue.id}
+                             field={issue.summaryField}
+                             style={[styles.issueListTitle, { flex: 1, fontWeight: '400' }]} 
+                             numberOfLines={1} 
+                           />
+                        </View>
                         <View style={[styles.miniBadge, { backgroundColor: getPriorityColor(issue.priority) }]}>
-                          <Text style={styles.miniBadgeText}>{issue.priority.toUpperCase()}</Text>
+                          <Text style={styles.miniBadgeText}>{t(`supervisor.crisisHeatmap.${issue.priority}`).toUpperCase()}</Text>
                         </View>
                       </View>
                       <View style={styles.issueListFooter}>
@@ -166,7 +196,7 @@ export const CrisisHeatmapScreen = () => {
                 ) : (
                   <View style={styles.emptyState}>
                     <Feather name="info" size={40} color={colors.textSecondary + '40'} />
-                    <Text style={styles.emptyStateText}>No issues found in this category.</Text>
+                    <Text style={styles.emptyStateText}>{t('supervisor.crisisHeatmap.noIssues')}</Text>
                   </View>
                 )}
               </ScrollView>

@@ -92,6 +92,68 @@ export const MOCK_MISSIONS: Mission[] = [
   }
 ];
 
+export interface LearningResource {
+  id: string;
+  title: string | { en: string; hi: string };
+  category: string | { en: string; hi: string };
+  duration: string | { en: string; hi: string };
+  type: 'Article' | 'Video' | 'Tutorial';
+  link: string;
+  thumbnail?: string;
+  isRequired?: boolean;
+}
+
+export const MOCK_LEARNING_RESOURCES: LearningResource[] = [
+  {
+    id: 'lr-1',
+    title: { 
+      en: 'Volunteer Code of Conduct', 
+      hi: 'स्वयंसेवक आचार संहिता' 
+    },
+    category: { en: 'Module 1', hi: 'मॉड्यूल 1' },
+    duration: { en: '15 mins read', hi: '15 मिनट का पाठ' },
+    type: 'Article',
+    link: 'https://www.unv.org/volunteer-code-conduct',
+    isRequired: true
+  },
+  {
+    id: 'lr-2',
+    title: { 
+      en: 'Privacy & Data Guidelines', 
+      hi: 'गोपनीयता और डेटा दिशानिर्देश' 
+    },
+    category: { en: 'Module 2', hi: 'मॉड्यूल 2' },
+    duration: { en: '20 mins read', hi: '20 मिनट का पाठ' },
+    type: 'Article',
+    link: 'https://www.privacy.gov.ph/wp-content/uploads/2018/11/Data-Privacy-for-NGOs-compressed.pdf',
+    isRequired: true
+  },
+  {
+    id: 'lr-3',
+    title: { 
+      en: 'Handling Emergency Situations', 
+      hi: 'आपातकालीन स्थितियों को संभालना' 
+    },
+    category: { en: 'Video Guide', hi: 'वीडियो गाइड' },
+    duration: { en: '10 mins video', hi: '10 मिनट का वीडियो' },
+    type: 'Video',
+    link: 'https://www.youtube.com/watch?v=0aVPHMG5I9U',
+    isRequired: false
+  },
+  {
+    id: 'lr-4',
+    title: { 
+      en: 'Using the SevaSetu App', 
+      hi: 'सेवासेतु ऐप का उपयोग करना' 
+    },
+    category: { en: 'Interactive Tutorial', hi: 'इंटरएक्टिव ट्यूटोरियल' },
+    duration: { en: '5 mins read', hi: '5 मिनट का पाठ' },
+    type: 'Article',
+    link: 'https://docs.expo.dev/',
+    isRequired: false
+  }
+];
+
 export const MOCK_STATS = {
   activeVolunteers: 124,
   openMissions: 28,

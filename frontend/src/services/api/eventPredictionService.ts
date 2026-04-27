@@ -4,27 +4,12 @@
  * Falls back to rich mock data if backend is unreachable (for demo resilience).
  */
 
-import { Platform } from 'react-native';
-import Constants from 'expo-constants'; // Added for dynamic IP
+import { Platform, Alert } from 'react-native';
+import { API_BASE_URL } from '../../config/apiConfig';
 
 // ── Base URL ──────────────────────────────────────────────────────────────────
 // 📱 Dynamic Base URL: use localhost for Web, extract LAN IP from Metro for physical devices
-const getBaseUrl = () => {
-  if (Platform.OS === 'web') return 'http://localhost:8000';
-  
-  // Extract host IP from Metro Bundler URI (e.g., 192.168.x.x:8081 -> 192.168.x.x:8000)
-  const hostUri = Constants.expoConfig?.hostUri; 
-  if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    console.log(`[API Config] Dynamic URL detected: http://${ip}:8000`);
-    return `http://${ip}:8000`;
-  }
-  
-  // Fallback to a common local IP if Metro URI is missing
-  return 'http://192.168.0.102:8000'; 
-};
-
-export const BASE_URL = getBaseUrl();
+export const BASE_URL = API_BASE_URL;
 
 // Set to true if you are offline or the backend is down during the demo
 const USE_MOCK_ONLY = false;
@@ -180,6 +165,30 @@ export interface ChatMessage {
   file_extension?: string; // Cloudinary format (pdf, jpg, etc.)
 }
 
+export interface ChatAnalysis {
+  executive_summary: { en: string; hi: string };
+  visual_insights: {
+    name: string;
+    type: 'pdf' | 'image';
+    summary: { en: string; hi: string };
+  }[];
+  issues_discussed: { en: string; hi: string }[];
+  mission_context: { en: string; hi: string };
+  key_insights: { en: string; hi: string }[];
+  volunteer_readiness: {
+    status: { en: string; hi: string };
+    reasoning: { en: string; hi: string };
+  };
+  action_items: { en: string; hi: string }[];
+  sentiment_breakdown: {
+    supervisor: { en: string; hi: string };
+    volunteer: { en: string; hi: string };
+    overall: { en: string; hi: string };
+  };
+  quality_score: number;
+  timestamp: string;
+}
+
 export interface ChatRoom {
   id: string;
   volunteer_id: string;
@@ -227,6 +236,14 @@ export async function apiFetch<T>(
 
     console.warn(`[eventPredictionService] API failure for ${path}: ${errorMsg}`);
 
+    // 🧪 DIAGNOSTIC ALERT FOR APK DEBUGGING (Chat & Maps)
+    if (path.includes('/chat/') || path.includes('/predictions')) {
+       Alert.alert(
+         'API Diagnostic',
+         `Path: ${path}\nURL: ${BASE_URL}${path}\nError: ${errorMsg}\nEnv Prod: ${process.env.EXPO_PUBLIC_USE_PRODUCTION}`
+       );
+    }
+
     if (fallback !== undefined) {
       console.log(`[eventPredictionService] Using demo fallback for ${path}`);
       return fallback;
@@ -234,6 +251,7 @@ export async function apiFetch<T>(
     throw err;
   }
 }
+
 
 // ── Predictions ───────────────────────────────────────────────────────────────
 
@@ -249,10 +267,16 @@ export async function fetchPredictions(): Promise<PredictedEvent[]> {
   try {
     const data = await apiFetch<any>('/predictions', undefined);
     // data.predictions could be [] which is valid — backend is reachable, DB is empty
-    return Array.isArray(data.predictions) ? data.predictions : [];
+    if (!data || !Array.isArray(data.predictions)) {
+      console.warn('[eventPredictionService] fetchPredictions: unexpected data format', data);
+      return [];
+    }
+    return data.predictions;
   } catch (e) {
-    // Only use mocks if the backend is physically unreachable (network down)
-    console.warn('[eventPredictionService] Backend unreachable, using mocks:', e);
+    const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+    console.warn('[eventPredictionService] fetchPredictions failure:', errorMsg);
+    
+    // Only use mocks if the backend is physically unreachable
     return MOCK_PREDICTIONS;
   }
 }
@@ -315,7 +339,8 @@ export async function createManualEvent(payload: {
 
 export async function fetchTasksForAssignment(assignmentId: string): Promise<MissionTask[]> {
   const data = await apiFetch<any>(`/tasks/${assignmentId}`, undefined, { tasks: [] });
-  return Array.isArray(data.tasks) ? data.tasks : [];
+  if (!data || !Array.isArray(data.tasks)) return [];
+  return data.tasks;
 }
 
 export async function createTask(assignmentId: string, description: string, proofRequired = false): Promise<string> {
@@ -357,7 +382,8 @@ export async function fetchAssignmentsForVolunteer(volunteerId: string): Promise
   try {
     const data = await apiFetch<any>(`/assignments/volunteer/${volunteerId}`, undefined);
     // Return real data even if it's an empty array — do NOT fall back to mocks
-    return Array.isArray(data.assignments) ? data.assignments : [];
+    if (!data || !Array.isArray(data.assignments)) return [];
+    return data.assignments;
   } catch (e) {
     console.warn('[eventPredictionService] fetchAssignments backend unreachable, using mocks:', e);
     return MOCK_ASSIGNMENTS;
@@ -396,7 +422,8 @@ export async function fetchNotifications(volunteerId: string): Promise<AppNotifi
   try {
     const data = await apiFetch<any>(`/notifications/${volunteerId}`, undefined);
     // Real empty notification list is valid — do not replace with mocks
-    return Array.isArray(data.notifications) ? data.notifications : [];
+    if (!data || !Array.isArray(data.notifications)) return [];
+    return data.notifications;
   } catch (e) {
     console.warn('[eventPredictionService] Notifications backend unreachable, using mocks:', e);
     return MOCK_NOTIFICATIONS;
@@ -509,7 +536,7 @@ export async function fetchUserRooms(userId: string): Promise<ChatRoom[]> {
   }
 }
 
-export async function summarizeChat(messages: any[], contextEvent?: string, roomId?: string): Promise<string> {
+export async function summarizeChat(messages: any[], contextEvent?: string, roomId?: string): Promise<any> {
   const data = await apiFetch<any>('/chat/summarize', {
     method: 'POST',
     body: JSON.stringify({ room_id: roomId, messages, context_event: contextEvent }),
@@ -522,10 +549,6 @@ export async function analyzeChat(roomId: string, eventName?: string): Promise<a
   const data = await apiFetch<any>('/chat/analyze', {
     method: 'POST',
     body: JSON.stringify({ room_id: roomId, event_name: eventName }),
-  });
-  console.log('[API] analyzeChat result received:', { 
-    success: !!data.analysis, 
-    keys: data.analysis ? Object.keys(data.analysis) : 'NONE' 
   });
   return data.analysis;
 }
@@ -542,7 +565,6 @@ export async function fetchAiHistory(roomId: string): Promise<AiMessage[]> {
     const data = await apiFetch<any>(`/chat/ask/history/${roomId}`, undefined);
     return Array.isArray(data.history) ? data.history : [];
   } catch (e) {
-    console.warn('[eventPredictionService] fetchAiHistory failed:', e);
     return [];
   }
 }
@@ -554,7 +576,6 @@ export async function clearAiHistory(roomId: string): Promise<boolean> {
     });
     return data.success === true;
   } catch (e) {
-    console.warn('[eventPredictionService] clearAiHistory failed:', e);
     return false;
   }
 }

@@ -1,121 +1,296 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, SafeAreaView, Platform, StatusBar, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TextInput, 
+  SafeAreaView, 
+  Platform, 
+  StatusBar, 
+  TouchableOpacity, 
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  ScrollView
+} from 'react-native';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+} from 'react-native-reanimated';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, globalStyles } from '../../theme';
-import { PrimaryButton, MadeInIndiaBadge, GradientBackground } from '../../components';
+import { colors, spacing, typography } from '../../theme';
+import { PrimaryButton, MadeInIndiaBadge, GradientBackground, IconButton, AshokaChakra, StatusModal } from '../../components';
+import { LanguageToggle } from '../../components/common/LanguageToggle';
 import { useAuthStore } from '../../services/store/useAuthStore';
+import { firebaseAuthService } from '../../services/auth/firebaseAuthService';
+import { useLanguage } from '../../context/LanguageContext';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import Constants from 'expo-constants';
 
-export const LoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => void }) => {
+WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+export const LoginScreen = () => {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const login = useAuthStore(state => state.login);
-  
+  const { login, loginWithGoogle } = useAuthStore();
+  const { t } = useLanguage();
+  const isExpoGo = Constants.appOwnership === 'expo';
   const role = route.params?.role || 'CITIZEN';
-  const displayRole = role === 'SUPERVISOR' ? 'NGO Supervisor' : role.charAt(0) + role.slice(1).toLowerCase();
-  
-  const handleLogin = async () => {
+
+  const redirectUri = AuthSession.makeRedirectUri();
+  const [googleRequest, googleResponse, promptGoogleAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: WEB_CLIENT_ID,
+      scopes: ['openid', 'profile', 'email'],
+      responseType: AuthSession.ResponseType.IdToken,
+      redirectUri,
+      extraParams: { nonce: Math.random().toString(36).substring(7) },
+    },
+    { authorizationEndpoint: GOOGLE_AUTH_ENDPOINT }
+  );
+
+  React.useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const idToken = (googleResponse as any).params?.id_token;
+      if (idToken) handleGoogleLogin(idToken);
+      else showError(t('common.error'), 'Google sign-in succeeded but no ID token was returned.');
+    } else if (googleResponse?.type === 'error') {
+      showError(t('common.error'), googleResponse.error?.message || 'Google sign-in failed');
+      setLoading(false);
+    }
+  }, [googleResponse]);
+
+  const handleGoogleLoginClick = async () => {
     setLoading(true);
     try {
-      const result = await login(email, password);
+      console.log('[GoogleAuth] Prompting Google sign-in via expo-auth-session...');
+      await promptGoogleAsync();
+    } catch (err: any) {
+      showError(t('common.error'), err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async (idToken: string, accessToken?: string) => {
+    setLoading(true);
+    try {
+      const result = await loginWithGoogle(idToken, role, accessToken);
       if (!result.success) {
-        Alert.alert('Login Failed', result.message);
+        showError(t('auth.loginError'), result.message);
       }
-    } catch (err) {
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } catch (err: any) {
+      showError(t('common.error'), err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalConfig, setModalConfig] = useState({ type: 'error' as 'error' | 'success', title: '', message: '' });
+
+  const showError = (title: string, message: string) => {
+    console.log('[Login] Showing error:', title, message);
+    setModalConfig({ type: 'error', title, message });
+    setModalVisible(true);
+  };
+
+  const handleLogin = async () => {
+    console.log('[Login] Attempting login for:', email);
+    setLoading(true);
+    try {
+      const result = await login(email, password);
+      console.log('[Login] Result:', result.success);
+      if (!result.success) {
+        showError(t('auth.loginError'), result.message);
+      }
+    } catch (err: any) {
+      console.error('[Login] Unexpected error:', err);
+      showError(t('common.error'), err.message || 'An unexpected error occurred.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const handleModalClose = () => {
+    setModalVisible(false);
+    // Only redirect for login errors, not for forgot password success
+    if (modalConfig.type === 'error') {
+      // Stay on login screen — user can try again
+    }
+  };
+
   return (
     <GradientBackground style={styles.container}>
-      <View style={styles.headerGradient}>
-        <SafeAreaView>
-          <View style={styles.headerContent}>
-            <View style={styles.brandingHeader}>
-              <Ionicons name="shield-checkmark" size={40} color={colors.cardBackground} style={styles.logoIcon} />
-              <Text style={styles.title}>SevaSetu</Text>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} bounces={false}>
+          <View style={styles.header}>
+            <SafeAreaView>
+              <View style={styles.topRow}>
+                <IconButton 
+                  iconName="arrow-left" 
+                  iconColor="#FFFFFF" 
+                  onPress={() => navigation.goBack()} 
+                  style={styles.backBtn}
+                />
+                <LanguageToggle />
+              </View>
+              <Animated.View 
+                entering={FadeInUp.delay(200).springify()}
+                style={styles.headerContent}
+              >
+                <AshokaChakra size={60} color="#FFFFFF" opacity={0.2} style={styles.headerChakra} />
+                <Text style={styles.title}>{t('auth.loginTitle')}</Text>
+                <Text style={styles.subtitle}>
+                  {t('auth.loginSubtitle')}
+                </Text>
+              </Animated.View>
+            </SafeAreaView>
+          </View>
+
+          <View style={styles.content}>
+            <Animated.View 
+              entering={FadeInDown.delay(400).springify()}
+              style={styles.formCard}
+            >
+              <View style={styles.roleIndicator}>
+                <Ionicons 
+                  name={role === 'SUPERVISOR' ? 'business' : role === 'VOLUNTEER' ? 'heart' : 'people'} 
+                  size={16} 
+                  color={colors.primarySaffron} 
+                />
+                <Text style={styles.roleIndicatorText}>
+                  {t('auth.loginAs')} {role === 'SUPERVISOR' ? t('auth.ngoSupervisor') : t(`auth.${role.toLowerCase()}`)}
+                </Text>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>{t('auth.email')}</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="mail-outline" size={20} color={colors.textSecondary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    keyboardType="email-address"
+                    placeholder={t('auth.emailPlaceholder')}
+                    placeholderTextColor={colors.textSecondary + '60'}
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>{t('auth.password')}</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    secureTextEntry
+                    placeholder={t('auth.passwordPlaceholder')}
+                    placeholderTextColor={colors.textSecondary + '60'}
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.forgotPassword} onPress={() => navigation.navigate('ForgotPassword')}>
+                <Text style={styles.forgotPasswordText}>{t('auth.forgotPassword')}</Text>
+              </TouchableOpacity>
+
+              <PrimaryButton 
+                title={loading ? t('auth.loggingIn') : t('auth.loginButton')} 
+                onPress={handleLogin} 
+                style={styles.loginBtn}
+                disabled={!email || !password || loading}
+              />
+              
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{t('auth.or')}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity 
+                style={styles.otpBtn} 
+                onPress={() => navigation.navigate('OtpLogin', { role })}
+              >
+                <Ionicons name="phone-portrait-outline" size={18} color={colors.navyBlue} />
+                <Text style={styles.otpBtnText}>{t('auth.loginWithOtp')}</Text>
+              </TouchableOpacity>
+
+              {isExpoGo ? (
+                // Google Sign-in requires production APK with registered SHA-1.
+                // However, we can try the manual flow for testing if redirect URIs are correct.
+                <TouchableOpacity 
+                  style={[styles.otpBtn, { marginTop: 12, borderColor: '#4285F4' }]} 
+                  onPress={handleGoogleLoginClick}
+                  disabled={loading || !googleRequest}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#4285F4" size="small" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="logo-google" size={18} color="#4285F4" />
+                      <Text style={[styles.otpBtnText, { color: '#4285F4' }]}>{t('auth.continueWithGoogle')}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity 
+                  style={[styles.otpBtn, { marginTop: 12, borderColor: '#4285F4' }]} 
+                  onPress={handleGoogleLoginClick}
+                  disabled={loading || !googleRequest}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#4285F4" size="small" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="logo-google" size={18} color="#4285F4" />
+                      <Text style={[styles.otpBtnText, { color: '#4285F4' }]}>{t('auth.continueWithGoogle')}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+            </Animated.View>
+
+            <Animated.View 
+              entering={FadeInDown.delay(600).springify()}
+              style={styles.registerContainer}
+            >
+              <Text style={styles.registerText}>{t('auth.noAccount')} </Text>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Register', { role })}>
+                 <Text style={styles.registerLink}>{t('auth.signUp')}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+
+            <View style={styles.footer}>
+              <MadeInIndiaBadge />
             </View>
-            <Text style={styles.subtitle}>
-              Login to continue as {displayRole}
-            </Text>
           </View>
-        </SafeAreaView>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
-      <View style={styles.content}>
-        <View style={[globalStyles.card, styles.formCard]}>
-          <Text style={styles.inputLabel}>Email Address</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="mail-outline" size={20} color={colors.textSecondary} style={styles.inputIcon} />
-            <TextInput
-              style={styles.textInput}
-              keyboardType="email-address"
-              placeholder="Enter your email"
-              placeholderTextColor={colors.textSecondary + '80'}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-            />
-          </View>
-
-          <Text style={styles.inputLabel}>Password</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} style={styles.inputIcon} />
-            <TextInput
-              style={styles.textInput}
-              secureTextEntry
-              placeholder="Enter your password"
-              placeholderTextColor={colors.textSecondary + '80'}
-              value={password}
-              onChangeText={setPassword}
-            />
-          </View>
-
-          <TouchableOpacity style={styles.forgotPassword}>
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          <PrimaryButton 
-            title={loading ? "Verifying..." : "Login"} 
-            onPress={handleLogin} 
-            style={styles.loginBtn}
-            disabled={!email || !password || loading}
-          />
-          
-          {/* OTP Link Alternative */}
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <TouchableOpacity 
-            style={styles.otpBtn} 
-            onPress={() => navigation.navigate('OtpLogin', { role })}
-          >
-            <Ionicons name="phone-portrait-outline" size={18} color={colors.accentBlue} />
-            <Text style={styles.otpBtnText}>Login with OTP</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Registration Link */}
-        <View style={styles.registerContainer}>
-          <Text style={styles.registerText}>Don't have an account? </Text>
-          <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('Register')}>
-             <Text style={styles.registerLink}>Register</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ flex: 1, justifyContent: 'flex-end', paddingBottom: spacing.lg }}>
-          <MadeInIndiaBadge />
-        </View>
-
-      </View>
+      <StatusModal
+        visible={modalVisible}
+        type={modalConfig.type}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        onClose={handleModalClose}
+        buttonText={t('common.retry')}
+      />
     </GradientBackground>
   );
 };
@@ -123,135 +298,161 @@ export const LoginScreen = ({ onSelectRole }: { onSelectRole?: (role: any) => vo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F8F9FA',
   },
-  headerGradient: {
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    overflow: 'hidden',
+  header: {
+    backgroundColor: '#1A237E',
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+    paddingBottom: 60,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    marginTop: Platform.OS === 'ios' ? 0 : (StatusBar.currentHeight || 0) + 15,
+  },
+  backBtn: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
   },
   headerContent: {
-    padding: spacing.xl,
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.xxl * 1.5,
+    paddingHorizontal: spacing.xl,
     alignItems: 'center',
+    marginTop: 10,
   },
-  brandingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  logoIcon: {
-    marginRight: spacing.sm,
-    textShadowColor: 'rgba(0,0,0,0.1)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+  headerChakra: {
+    position: 'absolute',
+    top: -20,
   },
   title: {
-    ...typography.headingLarge,
-    color: colors.cardBackground,
-    fontSize: 40,
-    letterSpacing: -1,
-    textShadowColor: 'rgba(0,0,0,0.1)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    ...typography.displayTitle,
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   subtitle: {
     ...typography.bodyText,
-    color: 'rgba(255,255,255,0.95)',
-    lineHeight: 24,
+    color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
-    fontWeight: '500',
+    fontSize: 15,
+    marginTop: 8,
+    lineHeight: 22,
+    maxWidth: '80%',
   },
   content: {
     flex: 1,
     padding: spacing.xl,
-    marginTop: -spacing.xl,
+    marginTop: -40,
   },
   formCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
     padding: spacing.xl,
-    marginBottom: spacing.xl,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 15 },
+    shadowOpacity: 0.1,
+    shadowRadius: 25,
+    elevation: 12,
+    marginBottom: spacing.xl,
+  },
+  roleIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primarySaffron + '15',
+    alignSelf: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    marginBottom: 24,
+  },
+  roleIndicatorText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.primarySaffron,
+    marginLeft: 6,
+    textTransform: 'uppercase',
+  },
+  inputGroup: {
+    marginBottom: 20,
   },
   inputLabel: {
-    ...typography.headingSmall,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.navyBlue,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.textSecondary + '30',
-    borderRadius: 12,
-    marginBottom: spacing.lg,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.background, // slight contrast against the card
-    height: 52,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#F0F0F0',
+    height: 56,
+    paddingHorizontal: 16,
   },
   inputIcon: {
-    marginRight: spacing.sm,
+    marginRight: 12,
   },
   textInput: {
     flex: 1,
-    ...typography.bodyText,
-    height: '100%',
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.navyBlue,
   },
   forgotPassword: {
     alignSelf: 'flex-end',
-    marginBottom: spacing.xl,
-    marginTop: -spacing.sm, // pull up closer to password input
+    marginBottom: 24,
   },
   forgotPasswordText: {
-    ...typography.captionText,
-    color: colors.accentBlue,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.primarySaffron,
   },
   loginBtn: {
-    width: '100%',
-    shadowColor: colors.primarySaffron,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    height: 56,
+    borderRadius: 16,
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: spacing.xl,
+    marginVertical: 24,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.textSecondary + '20',
+    backgroundColor: '#F0F0F0',
   },
   dividerText: {
-    ...typography.captionText,
-    color: colors.textSecondary,
-    paddingHorizontal: spacing.md,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#BDBDBD',
+    paddingHorizontal: 16,
   },
   otpBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.accentBlue + '40',
-    borderRadius: 12,
-    backgroundColor: colors.accentBlue + '0A',
+    height: 56,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
+    backgroundColor: '#FFFFFF',
   },
   otpBtnText: {
-    ...typography.headingSmall,
-    color: colors.accentBlue,
-    marginLeft: spacing.sm,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.navyBlue,
+    marginLeft: 10,
   },
   registerContainer: {
     flexDirection: 'row',
@@ -259,12 +460,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   registerText: {
-    ...typography.bodyText,
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.textSecondary,
   },
   registerLink: {
-    ...typography.bodyText,
+    fontSize: 15,
+    fontWeight: '800',
     color: colors.primarySaffron,
-    fontWeight: '700',
+  },
+  footer: {
+    marginTop: 30,
+    alignItems: 'center',
+    paddingBottom: 20,
   },
 });
+

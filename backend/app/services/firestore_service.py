@@ -50,3 +50,12 @@ def delete_report(report_id: str) -> None:
         raise ValueError(f"Report with ID '{report_id}' not found.")
     doc_ref.delete()
     print(f"Report {report_id} deleted from Firestore.")
+
+
+def update_document(collection_name: str, doc_id: str, data: dict) -> None:
+    """
+    Updates a document in any Firestore collection.
+    """
+    doc_ref = db.collection(collection_name).document(doc_id)
+    doc_ref.update(data)
+    print(f"Document {doc_id} in {collection_name} updated successfully.")

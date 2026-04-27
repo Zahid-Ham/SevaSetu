@@ -1,3 +1,4 @@
+import { useLanguage } from '../context/LanguageContext';
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet, Dimensions, Text } from 'react-native';
 import Animated, {
@@ -104,7 +105,6 @@ const AnimatedTabItem: React.FC<{
       >
         {label}
       </Animated.Text>
-      <Animated.View style={[styles.dot, dotStyle]} />
     </TouchableOpacity>
   );
 };
@@ -120,6 +120,7 @@ export const AnimatedTabBar: React.FC<BottomTabBarProps> = ({
   navigation,
 }) => {
   const insets = useSafeAreaInsets();
+  const { t } = useLanguage();
 
   return (
     <View style={[
@@ -132,7 +133,9 @@ export const AnimatedTabBar: React.FC<BottomTabBarProps> = ({
     ]}>
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
-        const label = (options.tabBarLabel as string) ?? route.name;
+        const rawLabel = (options.tabBarLabel as string) ?? route.name;
+        const translatedLabel = t(`nav.${route.name}`);
+        const label = translatedLabel !== `nav.${route.name}` ? translatedLabel : rawLabel;
         const isFocused = state.index === index;
         const iconName: FeatherIconName = ICON_MAP[route.name] ?? 'circle';
 

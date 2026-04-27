@@ -21,13 +21,14 @@ export * from './common/MadeInIndiaBadge';
 export * from './common/AshokaChakra';
 export * from './common/GradientBackground';
 export * from './common/AnimatedPressable';
-export * from './common/SkeletonCard';
 export * from './common/LottieAnimations';
 export * from './common/ConfettiOverlay';
 export * from './common/FullImageViewer';
+export * from './common/StatusModal';
 
 
 // Maps
 export * from './maps/MapMarker';
 export * from './maps/CrisisMap';
 export * from './LocationPickerModal';
+export * from './DynamicText';  

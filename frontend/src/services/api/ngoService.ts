@@ -54,3 +54,7 @@ export const reviewVolunteerRequest = async (requestId: string, status: 'APPROVE
   });
   return response.data;
 };
+export const fetchVolunteersByNgo = async (ngoId: string): Promise<any[]> => {
+  const response = await axios.get(`${API_URL}/ngos/${ngoId}/volunteers`);
+  return response.data;
+};

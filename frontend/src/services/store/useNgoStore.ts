@@ -5,6 +5,7 @@ import { NGO, VolunteerRequest } from '../api/ngoService';
 interface NgoState {
   ngos: NGO[];
   pendingRequests: VolunteerRequest[];
+  ngoVolunteers: any[];
   userRequest: VolunteerRequest | null;
   loading: boolean;
   error: string | null;
@@ -13,12 +14,14 @@ interface NgoState {
   loadUserRequest: (citizenId: string) => Promise<void>;
   submitRequest: (request: any) => Promise<void>;
   loadPendingRequests: (ngoId: string) => Promise<void>;
+  loadNgoVolunteers: (ngoId: string) => Promise<void>;
   updateRequest: (requestId: string, status: 'APPROVED' | 'REJECTED', supervisorId: string) => Promise<void>;
 }
 
 export const useNgoStore = create<NgoState>((set, get) => ({
   ngos: [],
   pendingRequests: [],
+  ngoVolunteers: [],
   userRequest: null,
   loading: false,
   error: null,
@@ -66,6 +69,18 @@ export const useNgoStore = create<NgoState>((set, get) => ({
       set({ pendingRequests: requests });
     } catch (err: any) {
       set({ error: err.message || 'Failed to fetch requests' });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  loadNgoVolunteers: async (ngoId: string) => {
+    set({ loading: true, error: null });
+    try {
+      const volunteers = await api.fetchVolunteersByNgo(ngoId);
+      set({ ngoVolunteers: volunteers });
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to fetch volunteers' });
     } finally {
       set({ loading: false });
     }

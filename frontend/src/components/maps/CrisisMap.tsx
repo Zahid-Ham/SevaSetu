@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, Heatmap } from 'react-native-maps';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import { MapMarker } from './MapMarker';
 import { colors, spacing, typography, globalStyles } from '../../theme';
 
 export interface Issue {
   id: string;
   title: string;
+  category?: string;
+  summary?: string;
+  summaryField?: string;
   description: string;
+  descField?: string;
   priority: 'urgent' | 'medium' | 'resolved';
   latitude: number;
   longitude: number;
@@ -22,159 +25,138 @@ interface CrisisMapProps {
   focusedIssueId?: string | null;
 }
 
-export const CrisisMap: React.FC<CrisisMapProps> = ({ 
-  issues, 
-  onIssuePress, 
+export const CrisisMap: React.FC<CrisisMapProps> = ({
+  issues,
+  onIssuePress,
   hideDefaultCard = false,
-  showHeatmap = true,
-  focusedIssueId = null
+  focusedIssueId = null,
 }) => {
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
-  const [isMapReady, setIsMapReady] = useState(false);
-
-  const mapRef = React.useRef<MapView | null>(null);
-
-  // Focus User Logic
-  const focusOnUser = (coords: { latitude: number, longitude: number }) => {
-    if (mapRef.current && isMapReady) {
-      mapRef.current.animateToRegion({
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      }, 1000);
-    }
-  };
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const webViewRef = React.useRef<any>(null);
 
   useEffect(() => {
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Permission to access location was denied');
-        return;
-      }
-
-      // Try fast last known position first
-      const lastPos = await Location.getLastKnownPositionAsync({});
-      if (lastPos) {
-        setLocation(lastPos);
-        if (isMapReady) focusOnUser(lastPos.coords);
-      }
-
-      // Then get precise current position
-      let currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      setLocation(currentLocation);
-      if (isMapReady) focusOnUser(currentLocation.coords);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const lastPos = await Location.getLastKnownPositionAsync({});
+        if (lastPos?.coords) setLocation({ latitude: lastPos.coords.latitude, longitude: lastPos.coords.longitude });
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (pos?.coords) setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      } catch {}
     })();
-  }, [isMapReady]);
+  }, []);
 
+  // When focusedIssueId changes, select that issue
   useEffect(() => {
-    if (focusedIssueId && isMapReady) {
+    if (focusedIssueId) {
       const issue = issues.find(i => i.id === focusedIssueId);
-      if (issue) {
-        setSelectedIssue(issue);
-        mapRef.current?.animateToRegion({
-          latitude: issue.latitude,
-          longitude: issue.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        }, 1000);
+      if (issue) setSelectedIssue(issue);
+    }
+  }, [focusedIssueId]);
+
+  const centerLat = location?.latitude ?? 19.076;
+  const centerLng = location?.longitude ?? 72.8777;
+
+  const getColor = (priority: Issue['priority']) =>
+    priority === 'urgent' ? '#EF4444' : priority === 'medium' ? '#F59E0B' : '#22C55E';
+
+  const markersJs = issues
+    .filter(i => !isNaN(i.latitude) && !isNaN(i.longitude))
+    .map(issue => `
+      L.circleMarker([${issue.latitude}, ${issue.longitude}], {
+        radius: 10,
+        fillColor: '${getColor(issue.priority)}',
+        color: '#fff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(map)
+        .on('click', function() {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ id: '${issue.id}' }));
+        })
+        .bindPopup(${JSON.stringify(issue.summary || issue.title)});
+    `).join('\n');
+
+  const userMarkerJs = location ? `
+    L.circleMarker([${centerLat}, ${centerLng}], {
+      radius: 12, fillColor: '#1A237E', color: '#fff', weight: 3, fillOpacity: 1
+    }).addTo(map).bindPopup('You are here');
+  ` : '';
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="initial-scale=1.0, width=device-width" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css?t=${Date.now()}" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js?t=${Date.now()}"></script>
+  <style>
+    * { margin:0; padding:0; } 
+    html,body,#map { width:100%; height:100%; }
+    #engine-mark { position:fixed; bottom:5px; left:5px; z-index:1000; font-size:8px; color:#999; pointer-events:none; }
+  </style>
+</head>
+<body>
+  <div id="engine-mark">OSM+Leaflet</div>
+  <div id="map"></div>
+  <script>
+    var map = L.map('map', { zoomControl: true }).setView([${centerLat}, ${centerLng}], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19
+    }).addTo(map);
+    ${userMarkerJs}
+    ${markersJs}
+  </script>
+</body>
+</html>`;
+
+  const handleMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.id) {
+        const issue = issues.find(i => i.id === data.id);
+        if (issue) {
+          setSelectedIssue(issue);
+          if (onIssuePress) onIssuePress(issue);
+        }
       }
-    }
-  }, [focusedIssueId, isMapReady]);
-
-  const getMarkerColorOverride = (priority: Issue['priority']) => {
-    switch(priority) {
-      case 'urgent': return colors.error; // Red
-      case 'medium': return colors.warning; // Yellow
-      case 'resolved': return colors.success; // Green
-      default: return colors.error;
-    }
-  }
-
-  const handleMarkerPress = (issue: Issue) => {
-    setSelectedIssue(issue);
-    if (onIssuePress) onIssuePress(issue);
+    } catch {}
   };
 
-  // Prepare points for Heatmap
-  const heatmapPoints = issues.map(iss => ({
-    latitude: iss.latitude,
-    longitude: iss.longitude,
-    weight: iss.priority === 'urgent' ? 3 : iss.priority === 'medium' ? 2 : 1
-  }));
+  const getMarkerColor = (priority: Issue['priority']) =>
+    priority === 'urgent' ? colors.error : priority === 'medium' ? colors.warning : colors.success;
 
   return (
     <View style={styles.container}>
-      <MapView 
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+      {!mapLoaded && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={colors.navyBlue} />
+          <Text style={styles.loadingText}>Loading Map...</Text>
+        </View>
+      )}
+      <WebView
+        ref={webViewRef}
         style={styles.map}
-        onMapReady={() => setIsMapReady(true)}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
-        initialRegion={{
-          latitude: 28.6139,
-          longitude: 77.2090,
-          latitudeDelta: 0.1,
-          longitudeDelta: 0.1,
-        }}
-      >
-        {location && (
-          <Marker
-            coordinate={{ latitude: location.coords.latitude, longitude: location.coords.longitude }}
-            title="You Are Here"
-            description="Supervisor's current location"
-          >
-            <View style={styles.userMarkerOuter}>
-              <View style={styles.userMarkerInner} />
-            </View>
-          </Marker>
-        )}
-
-        {showHeatmap && heatmapPoints.length > 0 && (
-          <Heatmap
-            points={heatmapPoints}
-            radius={40}
-            opacity={0.7}
-            gradient={{
-              colors: ['#00FF00', '#FBBF24', '#EF4444'],
-              startPoints: [0.2, 0.5, 0.8],
-              colorMapSize: 256,
-            }}
-          />
-        )}
-
-        {issues.map((issue) => (
-          <Marker
-            key={issue.id}
-            coordinate={{ latitude: issue.latitude, longitude: issue.longitude }}
-            onPress={() => handleMarkerPress(issue)}
-          >
-            <View style={[styles.customMarker, { backgroundColor: getMarkerColorOverride(issue.priority) }]} />
-          </Marker>
-        ))}
-      </MapView>
-      
-      {errorMsg ? (
-         <View style={styles.errorContainer}>
-           <Text style={styles.errorText}>{errorMsg}</Text>
-         </View>
-      ) : null}
-
+        originWhitelist={['*']}
+        source={{ html: htmlContent }}
+        onLoad={() => setMapLoaded(true)}
+        onMessage={handleMessage}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        mixedContentMode="always"
+      />
       {!hideDefaultCard && selectedIssue && (
-        <TouchableOpacity 
-          activeOpacity={0.9} 
+        <TouchableOpacity
+          activeOpacity={0.9}
           style={[globalStyles.card, styles.detailCard]}
           onPress={() => setSelectedIssue(null)}
         >
           <View style={styles.detailHeader}>
-            <View style={[styles.priorityBadge, { backgroundColor: getMarkerColorOverride(selectedIssue.priority) + '20' }]}>
-              <Text style={[styles.priorityText, { color: getMarkerColorOverride(selectedIssue.priority) }]}>
+            <View style={[styles.priorityBadge, { backgroundColor: getMarkerColor(selectedIssue.priority) + '20' }]}>
+              <Text style={[styles.priorityText, { color: getMarkerColor(selectedIssue.priority) }]}>
                 {selectedIssue.priority.toUpperCase()}
               </Text>
             </View>
@@ -182,8 +164,12 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
               {selectedIssue.latitude.toFixed(4)}, {selectedIssue.longitude.toFixed(4)}
             </Text>
           </View>
-          <Text style={[typography.headingSmall, styles.issueTitle]} numberOfLines={1}>{selectedIssue.title}</Text>
-          <Text style={[typography.bodyText, styles.issueDesc]} numberOfLines={3}>{selectedIssue.description}</Text>
+          <Text style={[typography.headingSmall, styles.issueTitle]} numberOfLines={1}>
+            {selectedIssue.category ? `${selectedIssue.category}: ` : ''}{selectedIssue.summary || selectedIssue.title}
+          </Text>
+          <Text style={[typography.bodyText, styles.issueDesc]} numberOfLines={3}>
+            {selectedIssue.description}
+          </Text>
         </TouchableOpacity>
       )}
     </View>
@@ -191,40 +177,16 @@ export const CrisisMap: React.FC<CrisisMapProps> = ({
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    overflow: 'hidden',
+  container: { flex: 1, overflow: 'hidden' },
+  map: { width: Dimensions.get('window').width, height: '100%' },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
-  map: {
-    width: Dimensions.get('window').width,
-    height: '100%',
-  },
-  customMarker: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.cardBackground,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  errorContainer: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
-    right: spacing.md,
-    backgroundColor: colors.error + 'E6', // slightly transparent red
-    padding: spacing.md,
-    borderRadius: 8,
-  },
-  errorText: {
-    color: colors.cardBackground,
-    textAlign: 'center',
-    fontWeight: '600',
-  },
+  loadingText: { marginTop: 12, color: colors.navyBlue, fontWeight: '600' },
   detailCard: {
     position: 'absolute',
     bottom: spacing.xxl,
@@ -239,43 +201,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.xs,
   },
-  coordsText: {
-    ...typography.captionText,
-    color: colors.textSecondary,
-    fontSize: 10,
-  },
-  priorityBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  priorityText: {
-    ...typography.captionText,
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  issueTitle: {
-    marginBottom: 2,
-  },
-  issueDesc: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  userMarkerOuter: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(26, 35, 126, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  userMarkerInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.accentBlue,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
+  coordsText: { ...typography.captionText, color: colors.textSecondary, fontSize: 10 },
+  priorityBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 12 },
+  priorityText: { ...typography.captionText, fontSize: 10, fontWeight: '700' },
+  issueTitle: { marginBottom: 2 },
+  issueDesc: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
 });

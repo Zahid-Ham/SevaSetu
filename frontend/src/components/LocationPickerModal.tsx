@@ -28,8 +28,8 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
   visible, onClose, onConfirm, initialLocation
 }) => {
   const [region, setRegion] = useState({
-    latitude: initialLocation?.latitude || 19.0760, // Default Mumbai
-    longitude: initialLocation?.longitude || 72.8777,
+    latitude: (initialLocation?.latitude && !isNaN(initialLocation.latitude)) ? initialLocation.latitude : 19.0760, // Default Mumbai
+    longitude: (initialLocation?.longitude && !isNaN(initialLocation.longitude)) ? initialLocation.longitude : 72.8777,
     latitudeDelta: 0.01,
     longitudeDelta: 0.01,
   });
@@ -122,8 +122,12 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
       );
       
       const { location } = response.data.result.geometry;
-      const lat = location.lat;
-      const lon = location.lng;
+      const lat = parseFloat(location.lat);
+      const lon = parseFloat(location.lng);
+      
+      if (isNaN(lat) || isNaN(lon)) {
+        throw new Error('Invalid coordinates received from Google Places');
+      }
       
       const newRegion = {
         ...region,
@@ -199,6 +203,7 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           <MapView
             ref={mapRef}
             style={styles.map}
+            provider={PROVIDER_GOOGLE}
             initialRegion={region}
             onRegionChangeComplete={onRegionChangeComplete}
             showsUserLocation

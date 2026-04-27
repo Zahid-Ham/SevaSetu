@@ -1,12 +1,20 @@
 export const colors = {
   primarySaffron: '#FF8C42',
+  saffronDeep: '#E8621A',
+  saffronLight: '#FFF3E8',
   primaryGreen: '#2E7D32',
+  indiaGreen: '#138808',
+  greenLight: '#E8F5E9',
   accentBlue: '#1A237E',
+  navyBlue: '#1A237E',
   background: '#F5F5F5',
   cardBackground: '#FFFFFF',
+  warmWhite: '#FFFAF6',
   error: '#D32F2F',
   warning: '#FBC02D',
   success: '#388E3C',
   textPrimary: '#1A1A1A',
   textSecondary: '#6B7280',
+  tricolorBg: ['#FF8C42', '#FFFFFF', '#138808'],
 };
+

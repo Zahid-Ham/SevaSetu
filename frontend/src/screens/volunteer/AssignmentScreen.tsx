@@ -1,3 +1,4 @@
+import { useLanguage } from '../../context/LanguageContext';
 /**
  * AssignmentScreen.tsx
  * Volunteer view — Pending / Accepted / Past assignments.
@@ -18,9 +19,11 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
+import { useAuthStore } from '../../services/store/useAuthStore';
 import { LiveMatch, VolunteerAssignment, MissionTask } from '../../services/api/eventPredictionService';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { AppHeader } from '../../components';
+import { AppHeader, DynamicText } from '../../components';
+import { getBilingualText } from '../../utils/bilingualHelpers';
 
 const TABS = ['Pending', 'Accepted', 'Past'] as const;
 type Tab = typeof TABS[number];
@@ -45,23 +48,24 @@ const ReasoningModal = ({ visible, reasoning, eventName, scoreBreakdown, onClose
   scoreBreakdown?: any;
   onClose: () => void;
 }) => {
+  const { t } = useLanguage();
   if (!visible) return null;
 
   // Fallback reasoning if the data was seeded before the AI update
   let aiText = reasoning || '';
   if (!aiText && scoreBreakdown) {
     const parts = [
-      `Overall: Partial Match (Heuristic Data)`,
-      `Skills: This mission utilizes your technical expertise (${scoreBreakdown.skill_match_pct || 0}% score).`,
-      `Availability: Our records indicate a ${scoreBreakdown.availability_pct || 0}% overlap with the mission window.`,
-      `Area: Proximity and travel distance contribute ${scoreBreakdown.area_match_pct || 0}% to your matching weight.`,
-      `Workload: Your current assignment frequency is healthy (${scoreBreakdown.fatigue_buffer_pct || 0}% score).`
+      `${t('assignments.overall')}: ${scoreBreakdown.match_score || 0}%`,
+      `Skills: ${scoreBreakdown.skill_match_pct || 0}%`,
+      `${t('assignments.availability')}: ${scoreBreakdown.availability_pct || 0}%`,
+      `${t('assignments.areaMatch')}: ${scoreBreakdown.area_match_pct || 0}%`,
+      `${t('assignments.fatigue_buffer')}: ${scoreBreakdown.fatigue_buffer_pct || 0}%`
     ];
     aiText = parts.join('\n\n');
   }
 
   if (!aiText) {
-    aiText = "Data Sync in Progress\n\nFull AI justification will appear once the mission details are re-verified by the dispatcher.";
+    aiText = `Data Sync in Progress\n\n${t('assignments.aiReasoningSub')}`;
   }
 
   const lines = aiText.split('\n\n');
@@ -81,8 +85,8 @@ const ReasoningModal = ({ visible, reasoning, eventName, scoreBreakdown, onClose
             <View style={modalStyles.sheet}>
               {/* Header */}
               <LinearGradient colors={['#1A237E', '#283593']} style={modalStyles.header}>
-                <Text style={modalStyles.headerTitle}>🤖 AI Match Reasoning</Text>
-                <Text style={modalStyles.headerSub}>{eventName}</Text>
+                <Text style={modalStyles.headerTitle}>{t('assignments.aiReasoningTitle')}</Text>
+                <DynamicText style={modalStyles.headerSub} text={eventName} />
                 <TouchableOpacity onPress={onClose} style={modalStyles.closeBtn}>
                   <Feather name="x" size={20} color="#fff" />
                 </TouchableOpacity>
@@ -91,9 +95,7 @@ const ReasoningModal = ({ visible, reasoning, eventName, scoreBreakdown, onClose
               <ScrollView contentContainerStyle={modalStyles.body}>
                 {/* Overall score banner */}
                 <View style={[modalStyles.scoreBanner, { borderColor: headlineColor, display: headline ? 'flex' : 'none' }]}>
-                  <Text style={[modalStyles.scoreBannerText, { color: headlineColor }]}>
-                    {headline}
-                  </Text>
+                  <DynamicText style={[modalStyles.scoreBannerText, { color: headlineColor }]} text={headline} />
                 </View>
 
                 {/* Breakdown rows */}
@@ -110,13 +112,13 @@ const ReasoningModal = ({ visible, reasoning, eventName, scoreBreakdown, onClose
                   return (
                     <View key={i} style={[modalStyles.reasonRow, { borderLeftColor: borderColor }]}>
                       <Text style={modalStyles.reasonIcon}>{icon}</Text>
-                      <Text style={modalStyles.reasonText}>{line}</Text>
+                      <DynamicText style={modalStyles.reasonText} text={line} />
                     </View>
                   );
                 })}
 
                 <TouchableOpacity style={modalStyles.doneBtn} onPress={onClose}>
-                  <Text style={modalStyles.doneBtnText}>Got it</Text>
+                  <Text style={modalStyles.doneBtnText}>{t('assignments.gotIt')}</Text>
                 </TouchableOpacity>
               </ScrollView>
             </View>
@@ -137,6 +139,7 @@ const FilterModal = ({ visible, filters, onApply, onClose, onReset, availableSki
   onReset: () => void;
   availableSkills: string[];
 }) => {
+  const { t } = useLanguage();
   const [tempFilters, setTempFilters] = useState<FilterOptions>(filters);
 
   useEffect(() => {
@@ -169,7 +172,7 @@ const FilterModal = ({ visible, filters, onApply, onClose, onReset, availableSki
             onPress={() => onSelect(v)}
           >
             <Text style={[filterStyles.thresholdOptionText, value === v && filterStyles.thresholdOptionTextActive]}>
-              {v === 0 ? 'Any' : `>${v}%`}
+              {v === 0 ? t('assignments.any') : `>${v}%`}
             </Text>
           </TouchableOpacity>
         ))}
@@ -186,39 +189,39 @@ const FilterModal = ({ visible, filters, onApply, onClose, onReset, availableSki
         <View style={[modalStyles.sheet, { maxHeight: '85%' }]}>
           <View style={filterStyles.header}>
             <TouchableOpacity onPress={onReset}>
-              <Text style={filterStyles.resetText}>Reset</Text>
+              <Text style={filterStyles.resetText}>{t('assignments.reset')}</Text>
             </TouchableOpacity>
-            <Text style={filterStyles.title}>Filters</Text>
+            <Text style={filterStyles.title}>{t('assignments.filtersTitle')}</Text>
             <TouchableOpacity onPress={onClose}>
               <Feather name="x" size={20} color={colors.textPrimary} />
             </TouchableOpacity>
           </View>
 
           <ScrollView style={{ padding: spacing.lg }}>
-            <Text style={filterStyles.sectionTitle}>Minimum Thresholds</Text>
+            <Text style={filterStyles.sectionTitle}>{t('assignments.minThresholds')}</Text>
             <ThresholdSelector 
-              label="Skill Match" 
+              label={t('assignments.skillMatch')} 
               value={tempFilters.minSkillMatch} 
               onSelect={(v) => updateThreshold('minSkillMatch', v)} 
             />
             <ThresholdSelector 
-              label="Availability" 
+              label={t('assignments.availability')} 
               value={tempFilters.minAvailability} 
               onSelect={(v) => updateThreshold('minAvailability', v)} 
             />
             <ThresholdSelector 
-              label="Area Match" 
+              label={t('assignments.areaMatch')} 
               value={tempFilters.minAreaMatch} 
               onSelect={(v) => updateThreshold('minAreaMatch', v)} 
             />
             <ThresholdSelector 
-              label="Overall AI Score" 
+              label={t('assignments.overallAiScore')} 
               value={tempFilters.minTotalScore} 
               onSelect={(v) => updateThreshold('minTotalScore', v)} 
             />
 
             <View style={{ marginTop: 24 }}>
-              <Text style={filterStyles.sectionTitle}>Filter by Required Skills</Text>
+              <Text style={filterStyles.sectionTitle}>{t('assignments.filterBySkills')}</Text>
               <View style={filterStyles.skillsGrid}>
                 {availableSkills.map(skill => (
                   <TouchableOpacity 
@@ -228,7 +231,7 @@ const FilterModal = ({ visible, filters, onApply, onClose, onReset, availableSki
                   >
                     <Text style={filterStyles.skillIcon}>{SKILL_ICONS[skill] || '🔸'}</Text>
                     <Text style={[filterStyles.skillName, tempFilters.requiredSkills.includes(skill) && filterStyles.skillNameActive]}>
-                      {skill.replace('_', ' ')}
+                      {t(`skills.${skill}`) !== `skills.${skill}` ? t(`skills.${skill}`) : skill.replace('_', ' ')}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -250,7 +253,7 @@ const FilterModal = ({ visible, filters, onApply, onClose, onReset, availableSki
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={filterStyles.applyGradient}
               >
-                <Text style={filterStyles.applyText}>Apply Filters</Text>
+                <Text style={filterStyles.applyText}>{t('assignments.applyFilters')}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -279,6 +282,7 @@ const DEFAULT_FILTERS: FilterOptions = {
 };
 
 export const AssignmentScreen = ({ navigation }: any) => {
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<Tab>('Pending');
   const [refreshing, setRefreshing] = useState(false);
   const [reasoningMatch, setReasoningMatch] = useState<any>(null);
@@ -294,6 +298,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
     volunteerProfile, liveMatches, loadLiveMatches,
     joinMatch,
   } = useEventStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
     loadAssignments(volunteerId);
@@ -326,13 +331,13 @@ export const AssignmentScreen = ({ navigation }: any) => {
       const availPct = breakdown.availability_pct || 0;
       const areaPct = breakdown.area_match_pct || 0;
 
-      // 1. Threshold Filters
+      // 1. Threshold {t('assignments.filtersTitle')}
       if (skillPct < filters.minSkillMatch) return false;
       if (availPct < filters.minAvailability) return false;
       if (areaPct < filters.minAreaMatch) return false;
       if (score < filters.minTotalScore) return false;
 
-      // 2. Specific Skill Match (OR logic)
+      // 2. Specific {t('assignments.skillMatch')} (OR logic)
       if (filters.requiredSkills.length > 0) {
         const itemSkills = item.matched_skills || item.volunteer_skills || [];
         const hasSkill = filters.requiredSkills.some(s => itemSkills.includes(s));
@@ -362,7 +367,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
   return (
     <View style={styles.container}>
       <AppHeader
-        title="My Assignments"
+        title={t('assignments.title')}
         showBack={true}
         onBackPress={() => navigation.goBack()}
       />
@@ -380,7 +385,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
               style={[styles.tab, isActive && styles.activeTab]}
               onPress={() => setActiveTab(tab)}
             >
-              <Text style={[styles.tabText, isActive && styles.activeTabText]}>{tab}</Text>
+              <Text style={[styles.tabText, isActive && styles.activeTabText]}>{t(`assignments.${tab.toLowerCase()}`)}</Text>
               {count > 0 && (
                 <View style={[styles.badge, isActive ? styles.badgeActive : styles.badgeInactive]}>
                   <Text style={[styles.badgeText, isActive && styles.badgeTextActive]}>{count}</Text>
@@ -394,7 +399,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
       {loadingAssignments && !refreshing ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primaryGreen} />
-          <Text style={[typography.captionText, { marginTop: spacing.sm }]}>Loading assignments…</Text>
+          <Text style={[typography.captionText, { marginTop: spacing.sm }]}>{t('assignments.loading')}</Text>
         </View>
       ) : (
         <ScrollView
@@ -407,10 +412,10 @@ export const AssignmentScreen = ({ navigation }: any) => {
               {rawPendingCount === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyIcon}>📡</Text>
-                  <Text style={styles.emptyTitle}>No Pending Missions</Text>
+                  <Text style={styles.emptyTitle}>{t('assignments.noPendingMissions')}</Text>
                   <Text style={styles.emptySubtitle}>
-                    There are no live events matching your profile at the moment. 
-                    Update your skills or check back when a supervisor dispatches a new mission.
+                    {t('assignments.noPendingSubtitle')} 
+                    
                   </Text>
                 </View>
               ) : (
@@ -419,7 +424,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                       <Feather name="zap" size={13} color={colors.primaryGreen} />
                       <Text style={styles.sectionHeaderText}>
-                        {pendingCount} mission{pendingCount !== 1 ? 's' : ''} shown
+                        {pendingCount} {pendingCount === 1 ? t('assignments.missionShown') : t('assignments.missionsShown')}
                       </Text>
                     </View>
                     
@@ -428,7 +433,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
                       onPress={() => setShowFilters(true)}
                     >
                       <Feather name="filter" size={14} color={activeFilterCount > 0 ? '#fff' : colors.primaryGreen} />
-                      <Text style={[styles.filterBtnText, activeFilterCount > 0 && { color: '#fff' }]}>Filter</Text>
+                      <Text style={[styles.filterBtnText, activeFilterCount > 0 && { color: '#fff' }]}>{t('assignments.filter')}</Text>
                       {activeFilterCount > 0 && (
                         <View style={styles.filterBadge}>
                           <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
@@ -437,7 +442,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Active Filters Row */}
+                  {/* Active {t('assignments.filtersTitle')} Row */}
                   {activeFilterCount > 0 && (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.activeFiltersRow} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
                       {Object.entries(filters).map(([key, val]) => {
@@ -461,7 +466,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
                         return null;
                       })}
                       <TouchableOpacity onPress={() => setFilters(DEFAULT_FILTERS)}>
-                        <Text style={[styles.filterBtnText, { color: colors.error, marginLeft: 8 }]}>Clear All</Text>
+                        <Text style={[styles.filterBtnText, { color: colors.error, marginLeft: 8 }]}>{t('assignments.clearAll')}</Text>
                       </TouchableOpacity>
                     </ScrollView>
                   )}
@@ -480,6 +485,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
                         setReasoningMatch(assign);
                       }}
                       navigation={navigation}
+                      user={user}
                     />
                   ))}
 
@@ -503,16 +509,17 @@ export const AssignmentScreen = ({ navigation }: any) => {
                         setReasoningMatch(match);
                       }}
                       navigation={navigation}
+                      user={user}
                     />
                   ))}
 
                   {pendingCount === 0 && (
                     <View style={styles.noResults}>
                       <Feather name="search" size={40} color={colors.textSecondary} style={{ opacity: 0.3 }} />
-                      <Text style={styles.noResultsTitle}>No results for these filters</Text>
-                      <Text style={styles.noResultsSub}>Try relaxing your thresholds or selecting fewer skills.</Text>
+                      <Text style={styles.noResultsTitle}>{t('assignments.noResults')}</Text>
+                      <Text style={styles.noResultsSub}>{t('assignments.tryRelaxing')}</Text>
                       <TouchableOpacity style={styles.clearFiltersBtn} onPress={() => setFilters(DEFAULT_FILTERS)}>
-                        <Text style={styles.clearFiltersText}>Reset All Filters</Text>
+                        <Text style={styles.clearFiltersText}>{t('assignments.reset')} All {t('assignments.filtersTitle')}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -526,8 +533,8 @@ export const AssignmentScreen = ({ navigation }: any) => {
               {acceptedList.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyIcon}>✅</Text>
-                  <Text style={styles.emptyTitle}>No Accepted Assignments</Text>
-                  <Text style={styles.emptySubtitle}>Missions you accept will appear here.</Text>
+                  <Text style={styles.emptyTitle}>{t('assignments.noAcceptedAssignments')}</Text>
+                  <Text style={styles.emptySubtitle}>{t('assignments.noAcceptedSubtitle')}</Text>
                 </View>
               ) : acceptedList.map((a) => (
                 <HistoryCard 
@@ -544,8 +551,8 @@ export const AssignmentScreen = ({ navigation }: any) => {
               {pastList.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyIcon}>📁</Text>
-                  <Text style={styles.emptyTitle}>No Past Assignments</Text>
-                  <Text style={styles.emptySubtitle}>Your declined assignment history will appear here.</Text>
+                  <Text style={styles.emptyTitle}>{t('assignments.noPastAssignments')}</Text>
+                  <Text style={styles.emptySubtitle}>{t('assignments.noPastSubtitle')}</Text>
                 </View>
               ) : pastList.map((a) => (
                 <HistoryCard 
@@ -590,7 +597,7 @@ export const AssignmentScreen = ({ navigation }: any) => {
 
 // ── Harmonized Mission Card Component ──────────────────────────────────────────
 
-const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onViewReasoning, navigation }: {
+const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onViewReasoning, navigation, user }: {
   data: any;
   isDirect: boolean;
   currentSkills: string[];
@@ -598,7 +605,9 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
   onDecline: () => Promise<void>;
   onViewReasoning: () => void;
   navigation: any;
+  user: any;
 }) => {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   
@@ -616,7 +625,7 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
     : matchPct >= 55 ? ['#FBC02D', '#FFD54F'] as const
     : ['#E65100', '#FF8C42'] as const;
 
-  const matchLabel = matchPct >= 75 ? 'Excellent Match' : matchPct >= 55 ? 'Good Match' : 'Partial Match';
+  const matchLabel = matchPct >= 75 ? t('assignments.excellentMatch') : matchPct >= 55 ? t('assignments.goodMatch') : t('assignments.partialMatch');
   const matchLabelColor = matchPct >= 75 ? colors.success : matchPct >= 55 ? colors.primarySaffron : colors.warning;
 
   return (
@@ -628,17 +637,35 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
           {isDirect ? (
              <View style={{ flex: 1 }}>
                <View style={styles.directBadge}>
-                 <Text style={styles.directBadgeText}>🎯 DIRECT ASSIGNMENT</Text>
+                 <Text style={styles.directBadgeText}>{t('assignments.directAssignment')}</Text>
                </View>
-               <Text style={styles.eventType}>{data.event_type}</Text>
-               <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {data.volunteer_area || data.area}</Text>
+               <DynamicText style={styles.eventType} text={data.event_type} />
+               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Feather name="map-pin" size={11} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                  <DynamicText style={styles.eventArea} text={data.volunteer_area || data.area} />
+                </View>
              </View>
           ) : (
             <>
               <Text style={styles.categoryIcon}>{CATEGORY_ICONS[data.category] || '📋'}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.eventType}>{data.event_type}</Text>
-                <Text style={styles.eventArea}><Feather name="map-pin" size={11} /> {data.area}</Text>
+                <DynamicText 
+                  style={styles.eventType} 
+                  text={data.event_type} 
+                  collection="predicted_events"
+                  docId={data.event_id || data.id}
+                  field="event_type"
+                />
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Feather name="map-pin" size={11} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                  <DynamicText 
+                    style={styles.eventArea} 
+                    text={data.volunteer_area || data.area} 
+                    collection="predicted_events"
+                    docId={data.event_id || data.id}
+                    field="area"
+                  />
+                </View>
               </View>
             </>
           )}
@@ -648,15 +675,18 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
             <TouchableOpacity 
               onPress={() => navigation.navigate('Chat', {
                 volunteer_id: data.volunteer_id,
-                supervisor_id: 'sup_deepak_1',
+                supervisor_id: user?.id || '',
                 event_id: data.event_id,
-                recipient_name: 'Deepak Chawla (Supervisor)',
+                recipient_name: 'Supervisor',
                 volunteer_name: 'Me',
-                supervisor_name: 'Deepak Chawla (Supervisor)',
+                supervisor_name: user?.name || 'Supervisor',
                 event_name: data.event_type,
                 metadata: {
                   event_name: data.event_type,
-                  event_description: data.event_description || 'Mission details related to ' + data.event_type,
+                  event_description: data.event_description || { 
+                    en: 'Mission details related to ' + getBilingualText(data.event_type, 'en'), 
+                    hi: getBilingualText(data.event_type, 'hi') + ' से संबंधित मिशन विवरण' 
+                  },
                   match_score: matchPct,
                   area: data.volunteer_area || 'Nagpur',
                   skills: data.volunteer_skills || []
@@ -671,13 +701,13 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
 
         {isDirect && (
           <Text style={styles.directDescription}>
-            The supervisor has specifically selected you for this mission based on your profile.
+            {t('assignments.directDesc')}
           </Text>
         )}
 
         {/* AI Match Score Bar */}
         <View style={styles.matchRow}>
-          <Text style={styles.matchLabel}>AI Match Score</Text>
+          <Text style={styles.matchLabel}>{t('assignments.aiMatchScore')}</Text>
           <Text style={[styles.matchValue, { color: matchLabelColor }]}>{matchPct}%</Text>
         </View>
         <View style={styles.matchBarBg}>
@@ -691,18 +721,20 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
           <Text style={styles.detailText}>{data.event_date_start} → {data.event_date_end}</Text>
         </View>
 
-        {/* Skill Matching Section */}
+        {/* {t('assignments.skillMatch')}ing Section */}
         <View style={styles.skillsSection}>
-           <Text style={styles.skillsHeader}>Your Matching Skills</Text>
+           <Text style={styles.skillsHeader}>{t('assignments.matchingSkills')}</Text>
            <View style={styles.skillsRow}>
               {/* Matched Skills */}
               {(data.matched_skills || (Array.isArray(data.volunteer_skills) ? data.volunteer_skills : []).filter((s: string) => (data.event_required_skills || []).includes(s))).length > 0 ? 
                 (data.matched_skills || (Array.isArray(data.volunteer_skills) ? data.volunteer_skills : []).filter((s: string) => (data.event_required_skills || []).includes(s))).map((s: string) => (
                 <View key={s} style={[styles.skillChip, styles.skillChipMatch]}>
-                  <Text style={styles.skillChipTextMatch}>{SKILL_ICONS[s] || '✅'} {s.replace('_', ' ')}</Text>
+                  <Text style={styles.skillChipTextMatch}>
+                    {SKILL_ICONS[s] || '✅'} {t('skills.' + s) !== 'skills.' + s ? t('skills.' + s) : s.replace('_', ' ')}
+                  </Text>
                 </View>
               )) : (
-                <Text style={styles.noMatchText}>General Volunteer Required</Text>
+                <Text style={styles.noMatchText}>{t('assignments.generalVolunteer')}</Text>
               )}
            </View>
         </View>
@@ -712,7 +744,13 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
           {Object.entries(data.score_breakdown || {}).map(([key, val]: any) => (
             <View key={key} style={styles.breakdownItem}>
               <Text style={styles.breakdownVal}>{val}%</Text>
-              <Text style={styles.breakdownLabel}>{key.replace('_pct', '').replace(/_/g, ' ')}</Text>
+              <Text style={styles.breakdownLabel}>
+                {key === 'skill_match_pct' ? t('assignments.skillMatch') :
+                 key === 'availability_pct' ? t('assignments.availability') :
+                 key === 'area_match_pct' ? t('assignments.areaMatch') :
+                 key === 'fatigue_buffer_pct' ? t('assignments.fatigue_buffer') :
+                 key.replace('_pct', '').replace(/_/g, ' ')}
+              </Text>
             </View>
           ))}
         </View>
@@ -722,7 +760,7 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
           <LinearGradient colors={['#1A237E', '#3949AB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={styles.reasoningBtnGradient}>
             <Feather name="cpu" size={14} color="#fff" />
-            <Text style={styles.reasoningBtnText}>View AI Reasoning</Text>
+            <Text style={styles.reasoningBtnText}>{t('assignments.viewAiReasoning')}</Text>
             <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.7)" />
           </LinearGradient>
         </TouchableOpacity>
@@ -735,7 +773,7 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
             disabled={loading}
           >
             <Feather name="x" size={16} color={colors.error} />
-            <Text style={styles.declineBtnText}>Reject</Text>
+            <Text style={styles.declineBtnText}>{t('assignments.reject')}</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.acceptBtn, isDirect && { backgroundColor: '#1A237E' }]} 
@@ -752,7 +790,7 @@ const MissionCard = ({ data, isDirect, currentSkills, onAccept, onDecline, onVie
               ) : (
                 <>
                   <Feather name="check" size={16} color="#fff" />
-                  <Text style={styles.acceptBtnText}>{isDirect ? 'Accept Mission' : 'Join Mission'}</Text>
+                  <Text style={styles.acceptBtnText}>{isDirect ? t('assignments.accept') : t('assignments.join')}</Text>
                 </>
               )}
             </LinearGradient>
@@ -770,15 +808,22 @@ const HistoryCard = ({ assignment, onViewTasks }: {
   assignment: VolunteerAssignment;
   onViewTasks?: () => void;
 }) => {
+  const { t } = useLanguage();
   const isAccepted = assignment.status === 'accepted';
   const color = isAccepted ? colors.success : colors.error;
-  const label = isAccepted ? '✅ Accepted' : '❌ Declined';
+  const label = isAccepted ? t('assignments.acceptedLabel') : t('assignments.declinedLabel');
 
   return (
     <View style={[globalStyles.card, styles.card]}>
       <View style={styles.cardHeader}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.eventType}>{assignment.event_type}</Text>
+          <DynamicText 
+            style={styles.eventType} 
+            text={assignment.event_type} 
+            collection="predicted_events"
+            docId={assignment.event_id}
+            field="event_type"
+          />
           <Text style={styles.eventArea}>{assignment.event_date_start} → {assignment.event_date_end}</Text>
         </View>
         <View style={[styles.matchBadge, { backgroundColor: color + '20' }]}>
@@ -787,13 +832,23 @@ const HistoryCard = ({ assignment, onViewTasks }: {
       </View>
       <View style={styles.detailRow}>
         <Feather name="map-pin" size={13} color={colors.textSecondary} />
-        <Text style={styles.detailText}>{assignment.volunteer_area || 'Area TBD'}</Text>
+        <DynamicText 
+          style={styles.detailText} 
+          text={assignment.volunteer_area || t('assignments.areaTbd')} 
+          collection="predicted_events"
+          docId={assignment.event_id}
+          field="area"
+        />
       </View>
       <View style={styles.breakdownRow}>
         {Object.entries(assignment.score_breakdown || {}).map(([key, val]) => (
           <View key={key} style={styles.breakdownItem}>
             <Text style={styles.breakdownVal}>{val}%</Text>
-            <Text style={styles.breakdownLabel}>{key.replace('_pct', '').replace(/_/g, ' ')}</Text>
+            <Text style={styles.breakdownLabel}>
+              {t(`assignments.${key.replace('_pct', '')}`) !== `assignments.${key.replace('_pct', '')}` 
+                ? t(`assignments.${key.replace('_pct', '')}`) 
+                : key.replace('_pct', '').replace(/_/g, ' ')}
+            </Text>
           </View>
         ))}
       </View>
@@ -801,7 +856,7 @@ const HistoryCard = ({ assignment, onViewTasks }: {
       {isAccepted && (
         <TouchableOpacity style={styles.viewTasksBtn} onPress={onViewTasks}>
           <Feather name="list" size={14} color={colors.primaryGreen} />
-          <Text style={styles.viewTasksBtnText}>View Mission Tasks</Text>
+          <Text style={styles.viewTasksBtnText}>{t('supervisor.assignmentManager.missionTasks')}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -815,6 +870,7 @@ const VolunteerTaskModal = ({ visible, assignment, onClose }: {
   assignment: VolunteerAssignment;
   onClose: () => void;
 }) => {
+  const { t } = useLanguage();
   const { tasks, loadTasks, completeTask, loadingAction } = useEventStore();
   
   useEffect(() => {
@@ -885,7 +941,7 @@ const VolunteerTaskModal = ({ visible, assignment, onClose }: {
           <View style={styles.modalHeader}>
             <View>
               <Text style={styles.modalTitle}>Mission Tasks</Text>
-              <Text style={styles.modalSub}>{assignment.event_type}</Text>
+              <DynamicText style={styles.modalSub} text={assignment.event_type} />
             </View>
             <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
               <Feather name="x" size={24} color={colors.textPrimary} />
@@ -902,9 +958,13 @@ const VolunteerTaskModal = ({ visible, assignment, onClose }: {
               assignmentTasks.map((t) => (
                 <View key={t.id} style={styles.taskItem}>
                   <View style={styles.taskMain}>
-                    <Text style={[styles.taskDesc, (t.status === 'under_review' || t.status === 'completed') && styles.taskDescDone]}>
-                      {t.description}
-                    </Text>
+                    <DynamicText 
+                      style={[styles.taskDesc, (t.status === 'under_review' || t.status === 'completed') && styles.taskDescDone]}
+                      text={t.description}
+                      collection="mission_tasks"
+                      docId={t.id}
+                      field="description"
+                    />
                     {t.proof_required && t.status === 'pending' && (
                       <Text style={styles.proofNote}>📌 Proof required (photo/document)</Text>
                     )}

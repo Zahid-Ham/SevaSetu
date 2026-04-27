@@ -251,11 +251,31 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Process cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
+    def log_message(self, format, *args):
+        pass # Suppress HTTP logs
+
+def start_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"Dummy health check server listening on port {port}")
+    server.serve_forever()
+
 def main() -> None:
     """Run the bot."""
     if not TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN not found in .env")
         return
+
+    # Start dummy web server in background to satisfy Cloud Run health checks
+    threading.Thread(target=start_dummy_server, daemon=True).start()
 
     application = Application.builder().token(TOKEN).build()
 

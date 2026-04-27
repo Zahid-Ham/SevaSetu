@@ -1,12 +1,13 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, ViewStyle } from 'react-native';
+import { TouchableOpacity, View, StyleSheet, Image, ViewStyle } from 'react-native';
 import { colors, spacing, typography, globalStyles } from '../../theme';
+import { DynamicText } from '../DynamicText';
 
 interface ImpactCardProps {
-  title: string;
-  metric: string;
-  date: string;
+  title: any;
+  metric: any;
+  date: any;
   imageUrl?: string;
+  onPress?: () => void;
   style?: ViewStyle;
 }
 
@@ -15,21 +16,27 @@ export const ImpactCard: React.FC<ImpactCardProps> = ({
   metric,
   date,
   imageUrl,
+  onPress,
   style,
 }) => {
   return (
-    <View style={[globalStyles.card, styles.container, style]}>
+    <TouchableOpacity 
+      activeOpacity={0.7}
+      onPress={onPress}
+      disabled={!onPress}
+      style={[globalStyles.card, styles.container, style]}
+    >
       {imageUrl ? (
         <Image source={{ uri: imageUrl }} style={styles.image} />
       ) : (
         <View style={[styles.image, styles.placeholderImage]} />
       )}
       <View style={styles.content}>
-        <Text style={typography.headingSmall} numberOfLines={1}>{title}</Text>
-        <Text style={[typography.bodyText, styles.metric]}>{metric}</Text>
-        <Text style={typography.captionText}>{date}</Text>
+        <DynamicText text={title} style={typography.headingSmall} numberOfLines={1} />
+        <DynamicText text={metric} style={[typography.bodyText, styles.metric]} />
+        <DynamicText text={date} style={typography.captionText} />
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 

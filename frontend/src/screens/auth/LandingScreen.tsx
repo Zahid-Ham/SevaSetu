@@ -1,98 +1,109 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import {
   StyleSheet,
-  TouchableOpacity,
   Dimensions,
-  ImageBackground,
   StatusBar,
   View,
-  Text,
-  Animated,
+  SafeAreaView,
+  Platform,
+  Image,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
-import { MadeInIndiaBadge } from '../../components';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useLanguage } from '../../context/LanguageContext';
+import { PrimaryButton, MadeInIndiaBadge } from '../../components';
+import { colors } from '../../theme';
 
 const { width, height } = Dimensions.get('window');
 
 export const LandingScreen = () => {
-  const navigation = useNavigation<any>();
-  const buttonAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(buttonAnim, {
-      toValue: 1,
-      duration: 800,
-      delay: 400,
-      useNativeDriver: true,
-    }).start();
-  }, []);
+  const { t } = useLanguage();
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/landingpage2.jpeg')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      
+      {/* Sharp, Focused Background Image */}
+      <View style={styles.bgWrapper}>
+        <Image 
+          source={require('../../assets/images/landingpage2.jpeg')} 
+          style={styles.backgroundImage} 
+          resizeMode="cover"
+        />
+      </View>
 
-      {/* Spacer to push button to the bottom */}
-      <View style={{ flex: 1 }} />
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
+          {/* Transparent Spacer to push button down */}
+          <View style={{ flex: 1 }} />
 
-      {/* Bottom section: Get Started button + Made in India */}
-      <Animated.View style={[styles.footer, { opacity: buttonAnim }]}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.buttonShadow}
-          onPress={() => navigation.navigate('RoleSelection')}
-        >
-          <LinearGradient
-            colors={['#FF9C45', '#FF7B1A']}
-            style={styles.button}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <Text style={styles.buttonText}>Get Started</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        <MadeInIndiaBadge />
-      </Animated.View>
-    </ImageBackground>
+          <View style={styles.bottomSection}>
+            <View style={styles.buttonContainer}>
+              <PrimaryButton 
+                title={t('auth.getStarted')} 
+                onPress={() => navigation.navigate('RoleSelection')}
+                style={styles.mainBtn}
+              />
+            </View>
+            
+            <View style={styles.footer}>
+              <MadeInIndiaBadge />
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  background: {
+  container: {
     flex: 1,
-    width,
-    height,
+    backgroundColor: '#fff',
+  },
+  bgWrapper: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: width,
+    height: height,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 30,
+    paddingBottom: 0,
+  },
+  bottomSection: {
+    paddingBottom: Platform.OS === 'ios' ? 10 : 20,
+    alignItems: 'center',
+    width: '100%',
+  },
+  buttonContainer: {
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 10,
+  },
+  mainBtn: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primarySaffron,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
   },
   footer: {
-    paddingHorizontal: 28,
-    paddingBottom: 36,
     alignItems: 'center',
-  },
-  buttonShadow: {
-    width: '100%',
-    shadowColor: '#FF6A00',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.55,
-    shadowRadius: 14,
-    elevation: 10,
-    marginBottom: 12,
-  },
-  button: {
-    width: '100%',
-    paddingVertical: 18,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
+    opacity: 0.9,
+    marginBottom: 5,
   },
 });
+
+export default LandingScreen;

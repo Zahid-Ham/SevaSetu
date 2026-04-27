@@ -1,3 +1,4 @@
+import { useLanguage } from '../../context/LanguageContext';
 /**
  * AssignmentManagerScreen.tsx
  * Supervisor view — per-event volunteer assignment status dashboard.
@@ -13,15 +14,17 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useEventStore } from '../../services/store/useEventStore';
+import { useAuthStore } from '../../services/store/useAuthStore';
 import { VolunteerAssignment, MOCK_PREDICTIONS, MissionTask } from '../../services/api/eventPredictionService';
 import { colors, spacing, typography, globalStyles } from '../../theme';
-import { AppHeader } from '../../components';
+import { AppHeader, DynamicText } from '../../components';
 import { ProofPeekModal } from '../../components/common/ProofPeekModal';
+import { getBilingualText } from '../../utils/bilingualHelpers';
 
 const STATUS_CONFIG = {
-  pending:  { label: 'Pending',  color: '#F59E0B', bg: '#FEF3C7', icon: 'clock' as const },
-  accepted: { label: 'Accepted', color: '#10B981', bg: '#D1FAE5', icon: 'check-circle' as const },
-  declined: { label: 'Declined', color: '#EF4444', bg: '#FEE2E2', icon: 'x-circle' as const },
+  pending:  { label: 'supervisor.assignmentManager.pending',  color: '#F59E0B', bg: '#FEF3C7', icon: 'clock' as const },
+  accepted: { label: 'supervisor.assignmentManager.accepted', color: '#10B981', bg: '#D1FAE5', icon: 'check-circle' as const },
+  declined: { label: 'supervisor.assignmentManager.declined', color: '#EF4444', bg: '#FEE2E2', icon: 'x-circle' as const },
 };
 
 export const AssignmentManagerScreen = ({ navigation, route }: any) => {
@@ -42,6 +45,8 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
     loadingAssignments, 
     loadingAction 
   } = useEventStore();
+  const { user } = useAuthStore();
+  const { t, language } = useLanguage();
 
   const confirmedEvents = predictions.filter((p) => p.status === 'confirmed');
 
@@ -103,7 +108,7 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
   return (
     <View style={styles.container}>
       <AppHeader 
-        title="Assignment Manager" 
+        title={t('supervisor.assignmentManager.title')} 
         showBack={true} 
         onBackPress={() => navigation.goBack()} 
       />
@@ -114,7 +119,7 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
       >
         {/* Event selector */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>SELECT EVENT</Text>
+          <Text style={styles.sectionLabel}>{t('supervisor.assignmentManager.selectEvent')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
             {/* Always show mock confirmed event for demo */}
             {(confirmedEvents.length > 0 ? confirmedEvents : MOCK_PREDICTIONS.filter((p) => p.status === 'confirmed')).map((evt) => (
@@ -124,7 +129,11 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
                 onPress={() => setSelectedEventId(evt.id)}
               >
                 <Text style={[styles.eventChipText, selectedEventId === evt.id && styles.eventChipTextActive]}>
-                  {evt.event_type}
+                  {(() => {
+                    const typeStr = getBilingualText(evt.event_type, language);
+                    const translated = t(`demo.${typeStr}`);
+                    return translated !== `demo.${typeStr}` ? translated : typeStr;
+                  })()}
                 </Text>
                 <Text style={[styles.eventChipDate, selectedEventId === evt.id && { color: 'rgba(255,255,255,0.8)' }]}>
                   {evt.predicted_date_start}
@@ -138,19 +147,19 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
           <>
             {/* Event summary card */}
             <LinearGradient colors={['#1A237E', '#283593']} style={[styles.eventSummaryCard]}>
-              <Text style={styles.summaryEventType}>{selectedEvent.event_type}</Text>
-              <Text style={styles.summaryArea}><Feather name="map-pin" size={12} /> {selectedEvent.area}</Text>
+              <DynamicText style={styles.summaryEventType} text={selectedEvent.event_type} />
+              <DynamicText style={styles.summaryArea} text={selectedEvent.area} />
               <Text style={styles.summaryDateRange}>
                 {selectedEvent.predicted_date_start} → {selectedEvent.predicted_date_end}
               </Text>
               <Text style={styles.summaryHeadcount}>
-                Target: {selectedEvent.estimated_headcount} volunteers
+                {t('supervisor.assignmentManager.target')} {selectedEvent.estimated_headcount} {t('supervisor.assignmentManager.volunteers')}
               </Text>
 
               {/* Progress bar */}
               <View style={styles.progressSection}>
                 <View style={styles.progressLabelRow}>
-                  <Text style={styles.progressLabel}>Fill Rate</Text>
+                  <Text style={styles.progressLabel}>{t('supervisor.assignmentManager.fillRate')}</Text>
                   <Text style={styles.progressValue}>
                     {acceptedCount}/{selectedEvent.estimated_headcount}
                   </Text>
@@ -166,9 +175,9 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
 
             {/* Stat chips */}
             <View style={styles.statRow}>
-              <StatChip label="Pending" value={displayAssignments.filter(a => a.status === 'pending').length} color="#F59E0B" />
-              <StatChip label="Accepted" value={displayAssignments.filter(a => a.status === 'accepted').length} color="#10B981" />
-              <StatChip label="Declined" value={displayAssignments.filter(a => a.status === 'declined').length} color="#EF4444" />
+              <StatChip label={t('supervisor.assignmentManager.pending')} value={displayAssignments.filter(a => a.status === 'pending').length} color="#F59E0B" />
+              <StatChip label={t('supervisor.assignmentManager.accepted')} value={displayAssignments.filter(a => a.status === 'accepted').length} color="#10B981" />
+              <StatChip label={t('supervisor.assignmentManager.declined')} value={displayAssignments.filter(a => a.status === 'declined').length} color="#EF4444" />
             </View>
           </>
         )}
@@ -188,7 +197,7 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
                 <View style={styles.statusGroupHeader}>
                   <Feather name={cfg.icon} size={15} color={cfg.color} />
                   <Text style={[styles.statusGroupTitle, { color: cfg.color }]}>
-                    {cfg.label} ({items.length})
+                    {t(cfg.label)} ({items.length})
                   </Text>
                 </View>
                 {items.map((a) => (
@@ -197,6 +206,7 @@ export const AssignmentManagerScreen = ({ navigation, route }: any) => {
                     assignment={a} 
                     allProfiles={allVolunteerProfiles} 
                     navigation={navigation}
+                    user={user}
                     onOpenTasks={() => {
                       try {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -243,6 +253,7 @@ const MissionTasksModal = ({ visible, assignment, onClose, onViewProof }: {
   onViewProof: (task: MissionTask) => void;
 }) => {
   const { tasks, loadTasks, addTask, approveTask, loadingAction } = useEventStore();
+  const { t } = useLanguage();
   const [description, setDescription] = useState('');
   const [proofRequired, setProofRequired] = useState(false);
 
@@ -270,8 +281,8 @@ const MissionTasksModal = ({ visible, assignment, onClose, onViewProof }: {
           {/* Header */}
           <View style={styles.modalHeader}>
             <View>
-              <Text style={styles.modalTitle}>Mission Tasks</Text>
-              <Text style={styles.modalSub}>{assignment.volunteer_name}</Text>
+              <Text style={styles.modalTitle}>{t('supervisor.assignmentManager.missionTasks')}</Text>
+              <DynamicText style={styles.modalSub} text={assignment.volunteer_name} />
             </View>
             <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
               <Feather name="x" size={24} color={colors.textPrimary} />
@@ -283,14 +294,14 @@ const MissionTasksModal = ({ visible, assignment, onClose, onViewProof }: {
             <View style={styles.addTaskForm}>
               <TextInput
                 style={styles.taskInput}
-                placeholder="Describe a specific task..."
+                placeholder={t('volunteer.home.addTaskPlaceholder') || "Describe a task..."}
                 value={description}
                 onChangeText={setDescription}
                 multiline
               />
               <View style={styles.taskOptions}>
                 <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>Proof Required</Text>
+                  <Text style={styles.switchLabel}>{t('supervisor.assignmentManager.proofRequired')}</Text>
                   <Switch
                     value={proofRequired}
                     onValueChange={setProofRequired}
@@ -302,87 +313,85 @@ const MissionTasksModal = ({ visible, assignment, onClose, onViewProof }: {
                   onPress={handleAddTask}
                   disabled={!description.trim() || loadingAction}
                 >
-                  <Text style={styles.addTaskBtnText}>Add Task</Text>
+                  <Text style={styles.addTaskBtnText}>{t('supervisor.assignmentManager.addTask')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* Tasks List */}
             <View style={styles.tasksList}>
-              <Text style={styles.listLabel}>CURRENT TASKS ({assignmentTasks.length})</Text>
+              <Text style={styles.listLabel}>{t('common.status').toUpperCase()} ({assignmentTasks.length})</Text>
               {assignmentTasks.length === 0 ? (
                 <View style={styles.emptyTasks}>
                   <Feather name="clipboard" size={40} color={colors.textSecondary} style={{ opacity: 0.2 }} />
-                  <Text style={styles.emptyTasksText}>No tasks assigned yet.</Text>
+                  <Text style={styles.emptyTasksText}>{t('supervisor.assignmentManager.noTasks') || "No tasks assigned yet."}</Text>
                 </View>
               ) : (
-                assignmentTasks.map((t: MissionTask) => (
-                  <View key={t.id} style={styles.taskItem}>
+                assignmentTasks.map((task: MissionTask) => (
+                  <View key={task.id} style={styles.taskItem}>
                     <View style={styles.taskStatusIndicator}>
                       <Feather 
-                        name={t.status === 'completed' ? 'check-circle' : t.status === 'under_review' ? 'clock' : t.status === 'rejected' ? 'alert-circle' : 'circle'} 
+                        name={task.status === 'completed' ? 'check-circle' : task.status === 'under_review' ? 'clock' : task.status === 'rejected' ? 'alert-circle' : 'circle'} 
                         size={20} 
-                        color={t.status === 'completed' ? colors.success : t.status === 'under_review' ? colors.warning : t.status === 'rejected' ? colors.error : colors.textSecondary} 
+                        color={task.status === 'completed' ? colors.success : task.status === 'under_review' ? colors.warning : task.status === 'rejected' ? colors.error : colors.textSecondary} 
                       />
                     </View>
                     <View style={styles.taskMain}>
-                      <Text style={[styles.taskDesc, (t.status === 'completed' || t.status === 'under_review') && styles.taskDescDone]}>
-                        {t.description}
-                      </Text>
+                      <DynamicText style={[styles.taskDesc, (task.status === 'completed' || task.status === 'under_review') && styles.taskDescDone]} text={task.description} />
                       
                       <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                        {t.status === 'under_review' && (
+                        {task.status === 'under_review' && (
                           <View style={[styles.proofBadge, { backgroundColor: colors.warning + '10' }]}>
-                            <Text style={[styles.proofBadgeText, { color: colors.warning }]}>⏳ UNDER REVIEW</Text>
+                            <Text style={[styles.proofBadgeText, { color: colors.warning }]}>⏳ {t('supervisor.assignmentManager.underReview').toUpperCase()}</Text>
                           </View>
                         )}
-                        {t.status === 'rejected' && (
+                        {task.status === 'rejected' && (
                           <View style={[styles.proofBadge, { backgroundColor: colors.error + '10' }]}>
-                            <Text style={[styles.proofBadgeText, { color: colors.error }]}>❌ REJECTED</Text>
+                            <Text style={[styles.proofBadgeText, { color: colors.error }]}>❌ {t('supervisor.assignmentManager.rejected').toUpperCase()}</Text>
                           </View>
                         )}
-                        {t.ai_verification && (
-                          <View style={[styles.proofBadge, { backgroundColor: t.ai_verification.confidence_score > 80 ? '#4ADE8020' : '#FBBF2420' }]}>
-                            <Text style={[styles.proofBadgeText, { color: t.ai_verification.confidence_score > 80 ? '#4ADE80' : '#FBBF24' }]}>
-                              🤖 AI: {t.ai_verification.confidence_score}%
+                        {task.ai_verification && (
+                          <View style={[styles.proofBadge, { backgroundColor: task.ai_verification.confidence_score > 80 ? '#4ADE8020' : '#FBBF2420' }]}>
+                            <Text style={[styles.proofBadgeText, { color: task.ai_verification.confidence_score > 80 ? '#4ADE80' : '#FBBF24' }]}>
+                              🤖 AI: {task.ai_verification.confidence_score}%
                             </Text>
                           </View>
                         )}
-                        {t.proof_required && t.status === 'pending' && (
+                        {task.proof_required && task.status === 'pending' && (
                           <View style={styles.proofBadge}>
-                            <Text style={styles.proofBadgeText}>📎 Proof Req.</Text>
+                            <Text style={styles.proofBadgeText}>📎 {t('supervisor.assignmentManager.proofRequired')}</Text>
                           </View>
                         )}
                       </View>
                     </View>
                     
-                    {t.status === 'under_review' ? (
+                    {task.status === 'under_review' ? (
                       <View style={{ flexDirection: 'row', gap: 8 }}>
-                        {t.proof_url && (
+                        {task.proof_url && (
                           <TouchableOpacity 
                             style={[styles.chatRowBtn, { backgroundColor: colors.primaryGreen + '10', paddingHorizontal: 12 }]} 
-                            onPress={() => onViewProof(t)}
+                            onPress={() => onViewProof(task)}
                           >
                             <Feather name="eye" size={14} color={colors.primaryGreen} />
                           </TouchableOpacity>
                         )}
                         <TouchableOpacity 
                           style={[styles.chatRowBtn, { backgroundColor: colors.success + '10', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12 }]} 
-                          onPress={() => approveTask(t.id, assignment.id)}
+                          onPress={() => approveTask(task.id, assignment.id)}
                           disabled={loadingAction}
                         >
                           <Feather name="check" size={14} color={colors.success} />
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.success }}>Approve</Text>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: colors.success }}>{t('supervisor.assignmentManager.approve')}</Text>
                         </TouchableOpacity>
                       </View>
                     ) : (
-                      (t.status === 'completed' && t.proof_url) && (
+                      (task.status === 'completed' && task.proof_url) && (
                         <TouchableOpacity 
                           style={styles.taskProof} 
-                          onPress={() => onViewProof(t)}
+                          onPress={() => onViewProof(task)}
                         >
                           <Feather name="image" size={16} color={colors.primaryGreen} />
-                          <Text style={{ fontSize: 10, color: colors.primaryGreen, marginLeft: 4 }}>View Proof</Text>
+                          <Text style={{ fontSize: 10, color: colors.primaryGreen, marginLeft: 4 }}>{t('supervisor.assignmentManager.viewProof')}</Text>
                         </TouchableOpacity>
                       )
                     )}
@@ -414,13 +423,16 @@ const AssignmentRow = ({
   assignment, 
   allProfiles,
   navigation,
-  onOpenTasks
+  onOpenTasks,
+  user
 }: { 
   assignment: VolunteerAssignment; 
   allProfiles: any[];
   navigation: any;
   onOpenTasks?: () => void;
+  user: any;
 }) => {
+  const { t } = useLanguage();
   const cfg = STATUS_CONFIG[assignment.status] ?? STATUS_CONFIG.pending;
   const matchPct = Math.round(assignment.match_score * 100);
 
@@ -434,7 +446,7 @@ const AssignmentRow = ({
       activeOpacity={0.7}
       onPress={() => {
         if (assignment.status?.toLowerCase() !== 'accepted') {
-          Alert.alert("Assignment Not Accepted", "You can only assign tasks to volunteers who have accepted the event.");
+          Alert.alert(t('supervisor.assignmentManager.proofRequired'), t('supervisor.assignmentManager.noTasks'));
           return;
         }
         if (onOpenTasks) onOpenTasks();
@@ -454,16 +466,18 @@ const AssignmentRow = ({
         </LinearGradient>
         <View style={styles.volunteerDetails}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.volunteerName}>{assignment.volunteer_name}</Text>
+            <DynamicText style={styles.volunteerName} text={liveProfile?.fullName || assignment.volunteer_name} />
             {liveProfile && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.success }} />}
           </View>
-          <Text style={styles.volunteerArea}>{liveProfile?.area || assignment.volunteer_area || 'Area unknown'}</Text>
+          <DynamicText style={styles.volunteerArea} text={liveProfile?.area || assignment.volunteer_area || 'Area unknown'} />
           <View style={styles.skillsRow}>
             {(Array.isArray(skillsToDisplay) ? skillsToDisplay : [])
               .slice(0, 4)
               .map((s: string) => (
                 <View key={s} style={styles.microChip}>
-                  <Text style={styles.microChipText}>{(s || '').replace('_', ' ')}</Text>
+                  <Text style={styles.microChipText}>
+                    {t(`skills.${s}`) !== `skills.${s}` ? t(`skills.${s}`) : (s || '').replace('_', ' ')}
+                  </Text>
                 </View>
               ))}
           </View>
@@ -473,11 +487,11 @@ const AssignmentRow = ({
         <TouchableOpacity 
           onPress={() => navigation.navigate('Chat', {
             volunteer_id: assignment.volunteer_id,
-            supervisor_id: 'sup_deepak_1',
+            supervisor_id: user?.id || '',
             event_id: assignment.event_id,
             recipient_name: assignment.volunteer_name,
             volunteer_name: assignment.volunteer_name,
-            supervisor_name: 'Deepak Chawla (Supervisor)',
+            supervisor_name: user?.name || 'Supervisor',
             event_name: assignment.event_type,
             metadata: {
               event_name: assignment.event_type,
@@ -492,14 +506,14 @@ const AssignmentRow = ({
           <Feather name="message-square" size={18} color={colors.primaryGreen} />
         </TouchableOpacity>
         <View style={[styles.statusPill, { backgroundColor: cfg.bg }]}>
-          <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
+          <Text style={[styles.statusPillText, { color: cfg.color }]}>{t(cfg.label)}</Text>
         </View>
         <Text style={[styles.matchPct, { color: matchPct >= 75 ? colors.success : matchPct >= 55 ? colors.warning : colors.error }]}>
-          {matchPct}% match
+          {matchPct}% {t('tasks.matchTitle') || "match"}
         </Text>
         {assignment.is_fallback && (
           <View style={styles.fallbackPill}>
-            <Text style={styles.fallbackPillText}>Fallback</Text>
+            <Text style={styles.fallbackPillText}>{t('supervisor.assignmentManager.fallback') || 'Fallback'}</Text>
           </View>
         )}
       </View>

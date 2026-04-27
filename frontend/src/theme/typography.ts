@@ -1,4 +1,10 @@
 export const typography = {
+  displayTitle: {
+    fontSize: 40,
+    fontWeight: '800' as const,
+    color: '#1A237E', // navyBlue
+    letterSpacing: -1,
+  },
   headingLarge: {
     fontSize: 32,
     fontWeight: '700' as const,
@@ -14,6 +20,13 @@ export const typography = {
     fontWeight: '600' as const,
     color: '#1A1A1A',
   },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: '#FF8C42', // primarySaffron
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+  },
   bodyText: {
     fontSize: 14,
     fontWeight: '400' as const,
@@ -25,3 +38,4 @@ export const typography = {
     color: '#6B7280', // textSecondary
   },
 };
+

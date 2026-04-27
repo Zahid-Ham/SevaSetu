@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { View, Text, StyleSheet, Pressable, ViewStyle, Animated } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, typography, globalStyles } from '../../theme';
+import { DynamicText } from '../DynamicText';
 
 interface MissionCardProps {
   title: string;
@@ -54,19 +55,17 @@ export const MissionCard: React.FC<MissionCardProps> = ({
         style={[globalStyles.card, styles.container]}
       >
       <View style={styles.header}>
-        <Text style={[typography.headingSmall, styles.title]} numberOfLines={1}>{title}</Text>
+        <DynamicText text={title} style={[typography.headingSmall, styles.title]} numberOfLines={1} />
         <View style={[styles.badge, { backgroundColor: getUrgencyColor() + '20' }]}>
-          <Text style={[styles.badgeText, { color: getUrgencyColor() }]}>{urgency}</Text>
+          <DynamicText text={urgency} style={[styles.badgeText, { color: getUrgencyColor() }]} />
         </View>
       </View>
       
-      <Text style={[typography.bodyText, styles.description]} numberOfLines={2}>
-        {description}
-      </Text>
+      <DynamicText text={description} style={[typography.bodyText, styles.description]} numberOfLines={2} />
       
       <View style={styles.footer}>
         <Feather name="map-pin" size={14} color={colors.textSecondary} />
-        <Text style={[typography.captionText, styles.location]}>{location}</Text>
+        <DynamicText text={location} style={[typography.captionText, styles.location]} />
       </View>
       </Pressable>
     </Animated.View>
@@ -76,6 +75,14 @@ export const MissionCard: React.FC<MissionCardProps> = ({
 const styles = StyleSheet.create({
   container: {
     marginBottom: spacing.md,
+    backgroundColor: colors.warmWhite,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primarySaffron,
+    padding: spacing.lg,
+    borderRadius: 16,
+    // Add specific border radius for the left border accent
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
   },
   header: {
     flexDirection: 'row',
@@ -86,26 +93,38 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     marginRight: spacing.sm,
+    color: colors.navyBlue,
+    fontWeight: '800',
   },
   badge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   badgeText: {
-    ...typography.captionText,
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   description: {
     color: colors.textSecondary,
     marginBottom: spacing.md,
+    lineHeight: 20,
   },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.03)',
+    paddingTop: spacing.sm,
   },
   location: {
     marginLeft: spacing.xs,
+    color: colors.indiaGreen,
+    fontWeight: '600',
   },
 });
+

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../api/eventPredictionService';
-import { ChatMessage, ChatRoom, AiMessage } from '../api/eventPredictionService';
+import { ChatMessage, ChatRoom, AiMessage, ChatAnalysis } from '../api/eventPredictionService';
 import { chatCache } from '../storage/chatCache';
 
 interface ChatState {
@@ -11,9 +11,9 @@ interface ChatState {
   loadingMessages: boolean;
   loadingRooms: boolean;
   sending: boolean;
-  summary: string | null;
+  summary: any | null;
   loadingSummary: boolean;
-  analysis: any | null;
+  analysis: ChatAnalysis | null;
   loadingAnalysis: boolean;
   askAiAnswer: string | null;
   aiHistory: AiMessage[];
@@ -122,6 +122,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // We use the same base IP as the REST API
     const baseUrl = api.BASE_URL; 
+    if (!baseUrl || !userId) {
+      console.warn('[useChatStore] Cannot connect WebSocket: baseUrl or userId missing', { baseUrl, userId });
+      set({ socketStatus: 'none', connectingSocket: false });
+      return;
+    }
+
     const wsUrl = baseUrl.replace('http', 'ws') + `/chat/ws/chat/${userId}`;
     
     console.log(`[useChatStore] Connecting Singleton WebSocket: ${wsUrl}`);
