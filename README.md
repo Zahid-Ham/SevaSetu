@@ -1,80 +1,192 @@
-# SevaSetu - Community Service Platform 🇮🇳
 
-A modern, high-performance platform connecting citizens with volunteers to solve community issues. Built with **React Native (Expo)**, **FastAPI**, and **AI-driven** processing.
+<div align="center">
+  
+# 🌐 SEVA SETU  
+### *Made in India, For India 🇮🇳*
 
----
 
-## 🌟 Key Features
-- **3-Way Ecosystem**: Dedicated interfaces for Citizens, Volunteers, and Supervisors.
-- **AI-Driven Reporting**: Automatic categorization and summarization of reports using Google Gemini.
-- **Multi-Channel Input**: Support for Telegram and WhatsApp reporting bots with media syncing.
-- **Robust Mapping**: WebView-based OpenStreetMap integration (Leaflet.js) ensuring maps work everywhere without API key restrictions or SHA-1 fingerprint issues.
-- **Secure Auth**: Manual Google Login flow optimized for Expo Go and production APKs.
-- **Bi-lingual Support**: Seamless switching between Hindi and English.
+### ⚡ The Operating System for Social Impact
 
----
+<img src="https://img.shields.io/badge/STATUS-Prototype-blue?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/BUILT%20WITH-Google%20AI-4285F4?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/PLATFORM-Web%20%7C%20Mobile%20%7C%20Bots-success?style=for-the-badge"/>
 
-## 🤖 Multi-Channel Reporting Bots
+<br>
 
-Citizens can report community issues directly via Telegram or WhatsApp. These bots support multi-media attachments and sync automatically with the SevaSetu Dashboard.
+💡 **Turning Chaos into Clarity. Turning Data into Impact.**
 
-### 1. Telegram Bot
-- **Run**: `cd backend && python bot/main.py`
-- **Features**: Live location sharing, photo/video/audio attachments.
-
-### 2. WhatsApp Bot (Twilio)
-- **Expose Local Server**: `npx localtunnel --port 8000`
-- **Webhook URL**: `YOUR_TUNNEL_URL/whatsapp/webhook`
-- **Features**: Interactive messaging flow for easy reporting.
+</div>
 
 ---
 
-## 🚀 Quick Start
+## 🧠 The Problem  
 
-### 1. Backend Setup
-The backend handles AI processing (Gemini), Firestore interactions, and bot logic.
-1. `cd backend`
-2. `python -m venv venv`
-3. `source venv/bin/activate` (Windows: `venv\Scripts\activate`)
-4. `pip install -r requirements.txt`
-5. Create `backend/.env` (see template).
-6. `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
+Local NGOs collect massive data — but it's scattered, unstructured, and underutilized.
 
-### 2. Frontend Setup
-The mobile app is built with Expo SDK 54.
-1. `cd frontend`
-2. `npm install`
-3. `npx expo start -c`
+- 📄 Paper surveys everywhere  
+- 📧 Emails not analyzed  
+- 🐢 Slow response time  
+- ❌ No unified system  
+
+⚠️ This leads to a **Crisis Communication Gap**
 
 ---
 
-## 🛠️ Architecture & Portability
-- **Map Fallback**: We use a `WebView` + `Leaflet.js` + `OpenStreetMap` approach. This avoids the common `react-native-maps` "Beige Screen" issue caused by mismatched SHA-1 fingerprints in local development.
-- **Auth Flow**: The Google Sign-in uses a manual `WebBrowser` flow to ensure compatibility with Expo Go without requiring the `androidClientId` during development.
+## 🚀 The Solution  
+
+**SEVA SETU** is a unified ecosystem connecting:
+
+👤 Citizens • 🧑‍🤝‍🧑 Volunteers • 🧑‍💼 NGOs  
+
+### Through:
+- 🌐 Web Platform  
+- 📱 Mobile App  
+- 🤖 WhatsApp & Telegram Bots  
+
+✨ Powered by **Google Gemini + GCP**
 
 ---
 
-## 🔑 Environment Variables
-### Backend (`backend/.env`)
-```ini
-GEMINI_API_KEY=YOUR_KEY
-PROJECT_ID=YOUR_FIREBASE_PROJECT_ID
-FIREBASE_CREDENTIALS_PATH=credentials/firebase-credentials.json
-GOOGLE_APPLICATION_CREDENTIALS=credentials/sevasetu-documentai.json
-CLOUDINARY_CLOUD_NAME=your_name
-TELEGRAM_BOT_TOKEN=your_token
-```
+## ✨ Core Features  
 
-### Frontend (`frontend/.env`)
-```ini
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=your_web_client_id
-EXPO_PUBLIC_USE_PRODUCTION=true
-EXPO_PUBLIC_PRODUCTION_API_URL=https://your-backend-api.com
-```
+### 📩 Email → Insight Engine  
+Convert messy emails into structured timelines  
+
+### 📊 Smart Report Generation  
+- Individual emails  
+- Thread summaries  
+- Survey reports  
+
+### 🤖 AI Chat Assistant  
+- Context-based answers  
+- Global insights  
+- Case understanding  
+
+### 🔮 Risk Prediction Dashboard  
+- Predict crisis zones  
+- Real-time + historical analysis  
 
 ---
 
-## 🛡️ Security Note
-- **DO NOT** commit `.env` files or the `credentials/` folder.
-- **.gitignore** is pre-configured to ignore all sensitive configuration files.
-- Hardcoded fallback IDs have been removed from the source code for safety.
+## 📱 Citizen Experience  
+
+- 📝 Easy grievance reporting  
+- 📍 Nearby events discovery  
+- 🙋 Volunteer participation  
+
+---
+
+## 🤖 Bot Integration (🔥 GAME CHANGER)
+
+### 📲 WhatsApp Bot  
+- Tap-based interaction  
+- No app install  
+
+### ✈️ Telegram Bot  
+- Upload images/videos  
+- Zero typing needed  
+
+💥 **Inclusive. Accessible. Powerful.**
+
+---
+
+## 📡 Offline First  
+
+- 💾 Data stored locally  
+- 🔄 Auto sync when online  
+
+🌾 Built for **rural + low network areas**
+
+---
+
+## 🧑‍🤝‍🧑 Volunteer System  
+
+- 🎯 Skill-based profiles  
+- 🤖 AI auto-assignment  
+- 📊 Task tracking  
+- 🏆 Gamification (badges + certificates)  
+
+---
+
+## 🧑‍💼 Supervisor Dashboard  
+
+- 📈 Analytics  
+- 🧠 Historical case matching  
+- ⚡ Smart decision support  
+
+---
+
+## 📷 Paper → Digital  
+
+- 📸 Scan surveys  
+- ⚡ Instant structured reports  
+- 📚 Batch processing  
+
+---
+
+## 🗺️ Crisis Heatmap  
+
+- 📍 Google Maps integration  
+- 🔥 Visual crisis zones  
+- ⚡ Live updates  
+
+---
+
+## 🏗️ Architecture  
+
+📌 Full system design available in presentation  
+
+- ☁️ Google Cloud Platform  
+- 🤖 Gemini AI  
+- 📡 Real-time sync  
+- 🔗 Multi-source data ingestion  
+
+---
+
+## 🛠️ Tech Stack  
+
+| Layer      | Technology                    |
+|------------|-----------------------------|
+| AI         | Google Gemini               |
+| Cloud      | Google Cloud Platform       |
+| Frontend   | HTML, CSS, JavaScript       |
+| Mobile     | App-based interface         |
+| Bots       | WhatsApp + Telegram APIs    |
+| Maps       | Google Maps API             |
+
+---
+
+## 🌟 MVP Highlights  
+
+- ✨ Smart Risk Prediction  
+- 📧 Email Intelligence  
+- 🗺️ Crisis Dashboard  
+- 📱 Live Surveys  
+- 🤖 Deep AI Chat Analysis  
+- 🏆 Verified Certificates  
+- 🌐 Hindi + English Support  
+
+---
+
+## 🔗 Links  
+
+- 🌐 **Live Demo:** Coming Soon  
+- 🎥 **Demo Video:** Coming Soon  
+- 💻 **GitHub Repo:** Add Link  
+- 🚀 **MVP:** Add Link  
+
+---
+
+## 👥 Team  
+
+🍛 **Team Name:** Idli Dosa  
+👩‍💻 **Team Members:** Iqra Sayed & Zahid Hamdule
+
+---
+
+## 🧡 Vision  
+
+> “Empowering communities through AI-driven coordination.”
+
+SEVA SETU is not just a platform —  
+it’s a **digital bridge connecting help to those who need it most.**
