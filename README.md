@@ -170,10 +170,8 @@ Convert messy emails into structured timelines
 
 ## 🔗 Links  
 
-- 🌐 **Live Demo:** Coming Soon  
-- 🎥 **Demo Video:** Coming Soon  
-- 💻 **GitHub Repo:** Add Link  
-- 🚀 **MVP:** Add Link  
+- 🌐 **Live Demo:** https://website-frontend-72481582913.us-central1.run.app/
+- 🎥 **Demo Video:** https://drive.google.com/file/d/13Wsa25v1vkUch_5EMp1jDR0wTmhHNp4J/view?usp=sharing
 
 ---
 
